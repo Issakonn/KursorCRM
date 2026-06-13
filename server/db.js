@@ -190,11 +190,12 @@ try {
     const wantCols = ['id','login','password_hash','name','role','age','group_id',
                       'languages','teacher_id','avatar_url','created_at'];
     const copyCols = wantCols.filter(c => oldCols.includes(c)).join(',');
-    db.exec(`
-      PRAGMA foreign_keys = OFF;
-      BEGIN;
-      ALTER TABLE users RENAME TO users_old;
-      CREATE TABLE users (
+    // better-sqlite3: PRAGMA нельзя смешивать с BEGIN/COMMIT в db.exec.
+    // Используем db.pragma() + db.transaction() для корректной работы.
+    db.pragma('foreign_keys = OFF');
+    db.transaction(() => {
+      db.exec(`ALTER TABLE users RENAME TO users_old`);
+      db.exec(`CREATE TABLE users (
         id            TEXT PRIMARY KEY,
         login         TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
@@ -207,14 +208,13 @@ try {
         avatar_url    TEXT,
         created_at    INTEGER NOT NULL,
         FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL
-      );
-      INSERT INTO users (${copyCols}) SELECT ${copyCols} FROM users_old;
-      DROP TABLE users_old;
-      CREATE INDEX IF NOT EXISTS idx_users_role     ON users(role);
-      CREATE INDEX IF NOT EXISTS idx_users_teacher  ON users(teacher_id);
-      COMMIT;
-      PRAGMA foreign_keys = ON;
-    `);
+      )`);
+      db.exec(`INSERT INTO users (${copyCols}) SELECT ${copyCols} FROM users_old`);
+      db.exec(`DROP TABLE users_old`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_users_role    ON users(role)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_users_teacher ON users(teacher_id)`);
+    })();
+    db.pragma('foreign_keys = ON');
     console.log('[db] Миграция users: снят CHECK по role (доступны роли assistant, parent).');
   }
 } catch (e) {

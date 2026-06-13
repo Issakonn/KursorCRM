@@ -11,8 +11,7 @@
 <div class="admin-layout">
   <aside class="admin-sidebar">
     <div class="logo">
-      <img src="https://salamalekum.sirv.com/_1_1.png.webp" alt="">
-      <span>КУРСОР</span>
+      <img src="https://salamalekum.sirv.com/_1_1.png.webp" alt="KURSOR">
     </div>
     <div id="navLangSlot" style="padding:0 16px 12px"></div>
     <div class="nav-search">
@@ -43,30 +42,52 @@ let cache = { users: [], modules: [], tasks: [], progressById: {} };
 let _renderToken = 0;
 
 /* ---- Сгруппированное меню ---- */
+/* SVG-иконки — единый стиль (Heroicons outline, 20×20) */
+const NAV_ICONS = {
+  dashboard:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>`,
+  notifications: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2a6 6 0 0 1 6 6c0 3.5 1.5 5 1.5 5h-15S4 11.5 4 8a6 6 0 0 1 6-6z"/><path d="M8.27 17a2 2 0 0 0 3.46 0"/></svg>`,
+  modules:       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h5v5H4zM11 4h5v5h-5zM4 11h5v5H4zM11 11h5v5h-5z"/></svg>`,
+  tasks:         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9l2 2 4-4"/><rect x="3" y="3" width="14" height="14" rx="2"/></svg>`,
+  materials:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4a2 2 0 0 1 2-2h5l5 5v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z"/><polyline points="11 2 11 7 16 7"/></svg>`,
+  access:        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="14" height="9" rx="2"/><path d="M7 9V6a3 3 0 0 1 6 0v3"/></svg>`,
+  branches:      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="16" r="2"/><circle cx="16" cy="16" r="2"/><path d="M10 6v3M10 9l-4 5M10 9l4 5"/></svg>`,
+  tariffs:       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="16" height="11" rx="2"/><path d="M2 9h16"/><path d="M6 13h.01M9 13h3"/></svg>`,
+  clients:       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="7" r="3"/><path d="M2 17c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14 6a3 3 0 0 1 0 6M18 17c0-2.2-1.3-4.1-3.2-5"/></svg>`,
+  groups:        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="2.5"/><path d="M5.5 17c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5"/><circle cx="3.5" cy="8" r="1.8"/><path d="M1 16c0-1.9 1.1-3.2 2.5-3.2"/><circle cx="16.5" cy="8" r="1.8"/><path d="M19 16c0-1.9-1.1-3.2-2.5-3.2"/></svg>`,
+  sessions:      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v2M13 2v2M7 12h2M11 12h2M7 15h2"/></svg>`,
+  homework:      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4a2 2 0 0 1 2-2h5l5 5v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z"/><path d="M7 11h6M7 14h4"/></svg>`,
+  users:         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="6" r="3"/><path d="M3 18c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>`,
+  permissions:   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2l7 3v5c0 4-3 7-7 8C3 17 0 14 0 10V5l7-3z" transform="translate(1,1) scale(0.9)"/><path d="M7 10l2 2 4-4"/></svg>`,
+};
+function navIcon(key) {
+  const svg = NAV_ICONS[key] || NAV_ICONS.tasks;
+  return `<span class="nav-svg-icon">${svg}</span>`;
+}
+
 const NAV_GROUPS = [
   { id:'overview', titleKey:'admin.grp_overview', items:[
-    { tab:'dashboard', i18n:'admin.dashboard', icon:'https://cdn-icons-png.flaticon.com/512/1828/1828791.png' },
-    { tab:'notifications', i18n:'admin.notifications', icon:'https://cdn-icons-png.flaticon.com/512/1827/1827347.png' },
+    { tab:'dashboard', i18n:'admin.dashboard', iconKey:'dashboard' },
+    { tab:'notifications', i18n:'admin.notifications', iconKey:'notifications' },
   ]},
   { id:'education', titleKey:'admin.grp_education', items:[
-    { tab:'modules', i18n:'admin.modules', icon:'https://cdn-icons-png.flaticon.com/512/2232/2232688.png' },
-    { tab:'tasks', i18n:'admin.tasks', icon:'https://cdn-icons-png.flaticon.com/512/3143/3143190.png' },
-    { tab:'materials', i18n:'admin.materials', icon:'https://cdn-icons-png.flaticon.com/512/2913/2913974.png' },
-    { tab:'access', i18n:'admin.access', icon:'https://cdn-icons-png.flaticon.com/512/1163/1163661.png', adminOnly:true },
+    { tab:'modules', i18n:'admin.modules', iconKey:'modules' },
+    { tab:'tasks', i18n:'admin.tasks', iconKey:'tasks' },
+    { tab:'materials', i18n:'admin.materials', iconKey:'materials' },
+    { tab:'access', i18n:'admin.access', iconKey:'access', adminOnly:true },
   ]},
   { id:'crm', titleKey:'admin.grp_crm', adminOnly:true, items:[
-    { tab:'branches', i18n:'admin.branches', icon:'https://cdn-icons-png.flaticon.com/512/3061/3061162.png', adminOnly:true },
-    { tab:'tariffs', i18n:'admin.tariffs', icon:'https://cdn-icons-png.flaticon.com/512/1611/1611179.png', adminOnly:true },
-    { tab:'clients', i18n:'admin.clients', icon:'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', adminOnly:true },
+    { tab:'branches', i18n:'admin.branches', iconKey:'branches', adminOnly:true },
+    { tab:'tariffs', i18n:'admin.tariffs', iconKey:'tariffs', adminOnly:true },
+    { tab:'clients', i18n:'admin.clients', iconKey:'clients', adminOnly:true },
   ]},
   { id:'journal', titleKey:'admin.grp_journal', items:[
-    { tab:'groups', i18n:'admin.groups', icon:'https://cdn-icons-png.flaticon.com/512/1534/1534938.png' },
-    { tab:'sessions', i18n:'admin.sessions', icon:'https://cdn-icons-png.flaticon.com/512/2693/2693507.png' },
-    { tab:'homework', i18n:'admin.homework', icon:'https://cdn-icons-png.flaticon.com/512/2911/2911232.png' },
+    { tab:'groups', i18n:'admin.groups', iconKey:'groups' },
+    { tab:'sessions', i18n:'admin.sessions', iconKey:'sessions' },
+    { tab:'homework', i18n:'admin.homework', iconKey:'homework' },
   ]},
   { id:'people', titleKey:'admin.grp_people', adminOnly:true, items:[
-    { tab:'users', i18n:'admin.users', icon:'https://cdn-icons-png.flaticon.com/512/1995/1995470.png', adminOnly:true },
-    { tab:'permissions', i18n:'admin.permissions', icon:'https://cdn-icons-png.flaticon.com/512/2058/2058768.png', adminOnly:true },
+    { tab:'users', i18n:'admin.users', iconKey:'users', adminOnly:true },
+    { tab:'permissions', i18n:'admin.permissions', iconKey:'permissions', adminOnly:true },
   ]},
 ];
 
@@ -84,7 +105,7 @@ function buildNav() {
       </div>
       <div class="nav-group-items">
         ${items.map(it => `<a href="#" data-tab="${it.tab}" data-label="${I18N.t(it.i18n).toLowerCase()}" onclick="switchTab('${it.tab}');return false;">
-          <img class="ic ic-20" src="${it.icon}" alt=""><span>${I18N.t(it.i18n)}</span></a>`).join('')}
+          ${navIcon(it.iconKey)}<span>${I18N.t(it.i18n)}</span></a>`).join('')}
       </div>
     </div>`;
   }).join('');
@@ -1176,11 +1197,15 @@ async function loadPerms() {
     upload_artifacts:'Загружать материалы занятий', write_feedback:'Писать обратную связь',
   };
   box.innerHTML = `<div class="card" style="padding:16px;max-width:480px">
-    ${(window._permKeys||Object.keys(labels)).map(k=>`
+    ${(window._permKeys||Object.keys(labels)).map(k => {
+      const key = (k && typeof k === 'object') ? k.key : k;
+      const lbl = (k && typeof k === 'object') ? (k.label || labels[k.key] || k.key) : (labels[k] || k);
+      return `
       <label style="display:flex;align-items:center;gap:10px;padding:8px 0">
-        <input type="checkbox" class="pm_check" data-key="${k}" ${perms[k]?'checked':''} style="width:18px;height:18px">
-        <span>${labels[k]||k}</span>
-      </label>`).join('')}
+        <input type="checkbox" class="pm_check" data-key="${key}" ${perms[key]?'checked':''} style="width:18px;height:18px">
+        <span>${lbl}</span>
+      </label>`;
+    }).join('')}
     <div style="display:flex;justify-content:flex-end;margin-top:10px">
       <button class="btn btn-success" onclick="savePerms('${tid}')" data-i18n="common.save">Сохранить</button>
     </div>
