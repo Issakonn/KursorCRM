@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><title>Админ — КУРСОР</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/uploads/mascot/happy.png">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Fira+Code&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <div class="logo">
+      <img src="https://salamalekum.sirv.com/_1_1.png.webp" alt="">
+      <span>КУРСОР</span>
+    </div>
+    <div id="navLangSlot" style="padding:0 16px 12px"></div>
+    <div class="nav-search">
+      <input id="navSearch" placeholder="Поиск раздела…" data-i18n-ph="admin.search_nav" oninput="filterNav(this.value)">
+    </div>
+    <nav id="navTree"></nav>
+    <a href="#" onclick="logout();return false;" style="margin-top:18px;display:flex;align-items:center;gap:10px;color:#fca5a5">
+      <img class="ic ic-20" src="https://cdn-icons-png.flaticon.com/512/1828/1828479.png" alt=""><span data-i18n="nav.logout">Выйти</span>
+    </a>
+  </aside>
+  <main class="admin-main">
+    <div id="tab">Загружаем…</div>
+  </main>
+</div>
+
+<div id="modal" class="modal-overlay"><div class="modal" id="modalContent"></div></div>
+
+<script src="/data/database.js"></script>
+<script src="/js/i18n.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/app.js"></script>
+<script>
+const user = requireAuth(['admin','teacher','assistant']);
+let userPerms = {};
+const isAdmin = user && user.role === 'admin';
+let currentTab = 'dashboard';
+let cache = { users: [], modules: [], tasks: [], progressById: {} };
+let _renderToken = 0;
+
+/* ---- Сгруппированное меню ---- */
+const NAV_GROUPS = [
+  { id:'overview', titleKey:'admin.grp_overview', items:[
+    { tab:'dashboard', i18n:'admin.dashboard', icon:'https://cdn-icons-png.flaticon.com/512/1828/1828791.png' },
+    { tab:'notifications', i18n:'admin.notifications', icon:'https://cdn-icons-png.flaticon.com/512/1827/1827347.png' },
+  ]},
+  { id:'education', titleKey:'admin.grp_education', items:[
+    { tab:'modules', i18n:'admin.modules', icon:'https://cdn-icons-png.flaticon.com/512/2232/2232688.png' },
+    { tab:'tasks', i18n:'admin.tasks', icon:'https://cdn-icons-png.flaticon.com/512/3143/3143190.png' },
+    { tab:'materials', i18n:'admin.materials', icon:'https://cdn-icons-png.flaticon.com/512/2913/2913974.png' },
+    { tab:'access', i18n:'admin.access', icon:'https://cdn-icons-png.flaticon.com/512/1163/1163661.png', adminOnly:true },
+  ]},
+  { id:'crm', titleKey:'admin.grp_crm', adminOnly:true, items:[
+    { tab:'branches', i18n:'admin.branches', icon:'https://cdn-icons-png.flaticon.com/512/3061/3061162.png', adminOnly:true },
+    { tab:'tariffs', i18n:'admin.tariffs', icon:'https://cdn-icons-png.flaticon.com/512/1611/1611179.png', adminOnly:true },
+    { tab:'clients', i18n:'admin.clients', icon:'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', adminOnly:true },
+  ]},
+  { id:'journal', titleKey:'admin.grp_journal', items:[
+    { tab:'groups', i18n:'admin.groups', icon:'https://cdn-icons-png.flaticon.com/512/1534/1534938.png' },
+    { tab:'sessions', i18n:'admin.sessions', icon:'https://cdn-icons-png.flaticon.com/512/2693/2693507.png' },
+    { tab:'homework', i18n:'admin.homework', icon:'https://cdn-icons-png.flaticon.com/512/2911/2911232.png' },
+  ]},
+  { id:'people', titleKey:'admin.grp_people', adminOnly:true, items:[
+    { tab:'users', i18n:'admin.users', icon:'https://cdn-icons-png.flaticon.com/512/1995/1995470.png', adminOnly:true },
+    { tab:'permissions', i18n:'admin.permissions', icon:'https://cdn-icons-png.flaticon.com/512/2058/2058768.png', adminOnly:true },
+  ]},
+];
+
+function buildNav() {
+  const tree = document.getElementById('navTree');
+  const collapsed = JSON.parse(localStorage.getItem('kursor_nav_collapsed') || '{}');
+  tree.innerHTML = NAV_GROUPS.map(g => {
+    if (g.adminOnly && !isAdmin) return '';
+    const items = g.items.filter(it => !(it.adminOnly && !isAdmin));
+    if (!items.length) return '';
+    const isCol = collapsed[g.id] ? 'collapsed' : '';
+    return `<div class="nav-group ${isCol}" data-group="${g.id}">
+      <div class="nav-group-title" onclick="toggleNavGroup('${g.id}')">
+        <span>${I18N.t(g.titleKey)}</span><span class="chev">▼</span>
+      </div>
+      <div class="nav-group-items">
+        ${items.map(it => `<a href="#" data-tab="${it.tab}" data-label="${I18N.t(it.i18n).toLowerCase()}" onclick="switchTab('${it.tab}');return false;">
+          <img class="ic ic-20" src="${it.icon}" alt=""><span>${I18N.t(it.i18n)}</span></a>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+  highlightActiveNav();
+}
+function toggleNavGroup(id) {
+  const collapsed = JSON.parse(localStorage.getItem('kursor_nav_collapsed') || '{}');
+  collapsed[id] = !collapsed[id];
+  localStorage.setItem('kursor_nav_collapsed', JSON.stringify(collapsed));
+  const el = document.querySelector(`.nav-group[data-group="${id}"]`);
+  if (el) el.classList.toggle('collapsed');
+}
+function highlightActiveNav() {
+  document.querySelectorAll('#navTree a').forEach(a => {
+    a.classList.toggle('active', a.dataset.tab === currentTab);
+  });
+}
+function filterNav(q) {
+  q = (q || '').toLowerCase().trim();
+  document.querySelectorAll('#navTree a').forEach(a => {
+    a.classList.toggle('nav-hidden', q && !a.dataset.label.includes(q));
+  });
+  document.querySelectorAll('.nav-group').forEach(g => {
+    const anyVisible = g.querySelectorAll('a:not(.nav-hidden)').length > 0;
+    g.classList.toggle('nav-hidden', q && !anyVisible);
+    if (q) g.classList.remove('collapsed');
+  });
+}
+
+function _withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Тайм-аут запроса: ' + label)), ms))
+  ]);
+}
+
+// Базовые данные нужны только для части вкладок — грузим по требованию
+let _baseLoaded = false;
+async function loadBase(force) {
+  if (_baseLoaded && !force) return;
+  const [users, modules, tasks] = await _withTimeout(Promise.all([
+    API.getUsers(true), API.getModules(true), API.getTasks(true),
+  ]), 15000, 'users/modules/tasks');
+  cache.users = users || [];
+  cache.modules = modules || [];
+  cache.tasks = tasks || [];
+  try {
+    const allProgress = await _withTimeout(API.getAllProgress(), 15000, 'progress');
+    cache.progressById = Object.fromEntries((allProgress || []).map(p => [p.userId, p]));
+  } catch (e) { console.warn('progress load failed:', e.message); cache.progressById = {}; }
+  _baseLoaded = true;
+}
+
+// Какие вкладки требуют базовый кэш (users/modules/tasks/progress)
+const BASE_TABS = ['dashboard','users','modules','tasks','materials','access','permissions','groups','sessions','homework','clients'];
+
+const TAB_RENDERERS = {
+  dashboard: () => renderDashboard(),
+  users: () => renderUsers(),
+  modules: () => renderModules(),
+  tasks: () => renderTasks(),
+  materials: () => renderMaterials(),
+  access: () => renderAccess(),
+  branches: () => renderBranches(),
+  tariffs: () => renderTariffs(),
+  groups: () => renderGroups(),
+  clients: () => renderClients(),
+  permissions: () => renderPermissions(),
+  sessions: () => renderSessions(),
+  homework: () => renderHomeworkAdmin(),
+  notifications: () => renderNotificationsTab(),
+};
+
+async function render() {
+  const myToken = ++_renderToken;
+  document.getElementById('tab').innerHTML = `<div class="card" style="padding:30px">${I18N.t('common.loading')}</div>`;
+  try {
+    if (BASE_TABS.includes(currentTab)) await loadBase();
+  } catch (e) {
+    if (myToken !== _renderToken) return;
+    document.getElementById('tab').innerHTML = `<div class="card" style="padding:30px;color:#ef4444">${I18N.t('common.error')}: ${escapeHtml(e.message)}<br><br><button class="btn" onclick="render()">${I18N.t('common.back')}</button></div>`;
+    return;
+  }
+  if (myToken !== _renderToken) return;
+  try {
+    const fn = TAB_RENDERERS[currentTab] || TAB_RENDERERS.dashboard;
+    await fn();
+  } catch (e) {
+    document.getElementById('tab').innerHTML = `<div class="card" style="padding:30px;color:#ef4444">${I18N.t('common.error')} "${currentTab}": ${escapeHtml(e.message)}</div>`;
+    console.error(e);
+  }
+}
+
+function switchTab(t) {
+  currentTab = t;
+  highlightActiveNav();
+  document.getElementById('navSearch').value = '';
+  filterNav('');
+  render();
+}
+
+// Инициализация после загрузки
+window.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('navLangSlot').innerHTML = I18N.switcherHtml();
+  try { const fresh = await API.refreshCurrentUser(); userPerms = fresh.permissions || {}; } catch {}
+  buildNav();
+  if (user) render();
+});
+
+function renderDashboard() {
+  const students = cache.users.filter(u => u.role === 'student');
+  const totalCompleted = students.reduce((sum, s) => {
+    const p = cache.progressById[s.id];
+    return sum + (p ? Object.values(p.tasks).filter(t=>t.status==='done').length : 0);
+  }, 0);
+  const totalPoints = students.reduce((sum, s) => sum + (cache.progressById[s.id]?.points || 0), 0);
+
+  document.getElementById('tab').innerHTML = `
+    <h1>Обзор платформы</h1>
+    <p style="color:#64748b;margin-top:6px">Привет, <b>${escapeHtml(user.name)}</b>! Роль: <span class="badge badge-${user.role==='admin'?'danger':'warning'}">${user.role}</span></p>
+    <div class="stats-grid" style="margin-top:20px">
+      <div class="stat-card"><div class="stat-icon blue"><img src="https://cdn-icons-png.flaticon.com/512/1995/1995470.png" style="width:22px;height:22px"></div><div><div class="stat-value">${students.length}</div><div class="stat-label">Учеников</div></div></div>
+      <div class="stat-card"><div class="stat-icon purple"><img src="https://cdn-icons-png.flaticon.com/512/2232/2232688.png" style="width:22px;height:22px"></div><div><div class="stat-value">${cache.modules.length}</div><div class="stat-label">Модулей</div></div></div>
+      <div class="stat-card"><div class="stat-icon green"><img src="https://cdn-icons-png.flaticon.com/512/3143/3143190.png" style="width:22px;height:22px"></div><div><div class="stat-value">${cache.tasks.length}</div><div class="stat-label">Задач</div></div></div>
+      <div class="stat-card"><div class="stat-icon orange"><img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"></div><div><div class="stat-value">${totalCompleted}</div><div class="stat-label">Решено всеми</div></div></div>
+      <div class="stat-card"><div class="stat-icon pink"><img src="https://cdn-icons-png.flaticon.com/512/1828/1828884.png" style="width:22px;height:22px"></div><div><div class="stat-value">${totalPoints}</div><div class="stat-label">Очков всего</div></div></div>
+    </div>
+
+    <h2 class="section-title" style="margin-top:30px">Быстрые действия</h2>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      ${user.role === 'admin' ? `<button class="btn btn-lg" onclick="switchTab('users');setTimeout(openUserForm,100)">Добавить аккаунт</button>` : ''}
+      <button class="btn btn-lg btn-secondary" onclick="switchTab('tasks');setTimeout(openTaskForm,100)">Добавить задачу</button>
+      <button class="btn btn-lg btn-success" onclick="switchTab('modules');setTimeout(openModuleForm,100)">Добавить модуль</button>
+    </div>
+  `;
+}
+
+function renderUsers() {
+  if (user.role !== 'admin') {
+    document.getElementById('tab').innerHTML = `
+      <h1>Пользователи</h1>
+      <div class="card" style="padding:24px;margin-top:14px">
+        <p>Только администратор может создавать и редактировать аккаунты.</p>
+      </div>`;
+    return;
+  }
+  document.getElementById('tab').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.users">Пользователи</h1>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="API.exportDownload('users','csv')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/2965/2965335.png" alt=""> <span data-i18n="common.export">Экспорт</span></button>
+        <button class="btn btn-ghost btn-sm" onclick="openImport('users')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/2965/2965300.png" alt=""> <span data-i18n="common.import">Импорт</span></button>
+        <button class="btn" onclick="openUserForm()">Создать аккаунт</button>
+      </div>
+    </div>
+    <p style="color:#64748b;margin-bottom:14px">Пароли хранятся на сервере в виде bcrypt-хешей и не показываются.</p>
+    <table class="table">
+      <thead><tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Возраст</th><th>Группа</th><th>Языки</th><th>Действия</th></tr></thead>
+      <tbody>
+        ${cache.users.map(u => `
+          <tr>
+            <td><b>${escapeHtml(u.name)}</b></td>
+            <td><code>${escapeHtml(u.login)}</code></td>
+            <td><span class="badge badge-${u.role==='admin'?'danger':u.role==='teacher'?'warning':'info'}">${u.role}</span></td>
+            <td>${u.age || '—'}</td>
+            <td>${KURSOR_DB.GROUPS[u.group]?.name || '—'}</td>
+            <td>${(u.languages||[]).map(l=>KURSOR_DB.LANGS[l]?.icon ? `<img src="${KURSOR_DB.LANGS[l].icon}" style="width:18px;height:18px;object-fit:contain;vertical-align:-3px;margin-right:2px">` : '').join('') || '—'}</td>
+            <td>
+              <button class="btn btn-ghost" title="Редактировать" onclick="openUserForm('${u.id}')"><img src="https://cdn-icons-png.flaticon.com/512/1159/1159633.png" style="width:18px;height:18px;vertical-align:-3px"></button>
+              ${u.id !== user.id ? `<button class="btn btn-ghost" title="Удалить" style="color:#ef4444" onclick="removeUser('${u.id}')"><img src="https://cdn-icons-png.flaticon.com/512/3221/3221897.png" style="width:18px;height:18px;vertical-align:-3px"></button>` : ''}
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function openUserForm(id) {
+  const u = id ? cache.users.find(x => x.id === id) : { role:'student', age:10, group:2, languages:[] };
+  const langs = Object.entries(KURSOR_DB.LANGS);
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id ? 'Редактировать' : 'Создать'} пользователя</h2>
+    <div class="form-group"><label>Имя</label><input class="form-input" id="f_name" value="${escapeHtml(u.name||'')}" placeholder="Алия Серикова"></div>
+    <div class="form-group"><label>Логин</label><input class="form-input" id="f_login" value="${escapeHtml(u.login||'')}" placeholder="aliya"></div>
+    <div class="form-group">
+      <label>Пароль ${id ? '<small style="color:#64748b">(оставь пустым, чтобы не менять)</small>' : ''}</label>
+      <input class="form-input" id="f_password" type="text" value="" placeholder="${id ? 'не менять' : 'минимум 4 символа'}">
+    </div>
+    <div class="form-group"><label>Роль</label>
+      <select class="form-input" id="f_role" onchange="toggleStudentFields()">
+        <option value="student" ${u.role==='student'?'selected':''}>Ученик</option>
+        <option value="teacher" ${u.role==='teacher'?'selected':''}>Учитель</option>
+        <option value="assistant" ${u.role==='assistant'?'selected':''}>Ассистент</option>
+        <option value="parent" ${u.role==='parent'?'selected':''}>Родитель</option>
+        <option value="admin" ${u.role==='admin'?'selected':''}>Администратор</option>
+      </select>
+    </div>
+    <div class="form-group" id="studentFields">
+      <label>Возраст</label><input class="form-input" id="f_age" type="number" value="${u.age||10}" min="6" max="18">
+      <label style="margin-top:10px">Группа</label>
+      <select class="form-input" id="f_group">
+        <option value="1" ${u.group==1?'selected':''}>Группа 1 (6–8 лет)</option>
+        <option value="2" ${u.group==2?'selected':''}>Группа 2 (9–11 лет)</option>
+        <option value="3" ${u.group==3?'selected':''}>Группа 3 (12–16 лет)</option>
+      </select>
+      <label style="margin-top:10px">Языки / технологии:</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        ${langs.map(([k,l]) => `
+          <label class="filter-chip" style="cursor:pointer;display:flex;align-items:center;gap:6px">
+            <input type="checkbox" class="f_lang" value="${k}" ${(u.languages||[]).includes(k)?'checked':''}>
+            ${l.icon ? `<img src="${l.icon}" style="width:14px;height:14px;object-fit:contain;vertical-align:-2px">` : ''} ${l.name}
+          </label>`).join('')}
+      </div>
+      <label style="margin-top:10px">Прикреплённый учитель (опционально)</label>
+      <select class="form-input" id="f_teacher">
+        <option value="">— не назначен —</option>
+        ${cache.users.filter(x => x.role === 'teacher').map(t =>
+          `<option value="${t.id}" ${u.teacher_id===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;margin-top:8px;min-height:18px"></div>
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-success" onclick="saveUser('${id||''}')">Сохранить</button>
+    </div>
+  `;
+  document.getElementById('modal').classList.add('active');
+  toggleStudentFields();
+}
+
+async function saveUser(id) {
+  const langs = Array.from(document.querySelectorAll('.f_lang:checked')).map(c => c.value);
+  const data = {
+    name: document.getElementById('f_name').value.trim(),
+    login: document.getElementById('f_login').value.trim(),
+    role: document.getElementById('f_role').value,
+    age: parseInt(document.getElementById('f_age').value) || 0,
+    group: parseInt(document.getElementById('f_group').value) || 0,
+    languages: langs,
+    teacher_id: document.getElementById('f_teacher').value || null,
+  };
+  const pwd = document.getElementById('f_password').value;
+  if (pwd) data.password = pwd;
+  const err = document.getElementById('modalErr');
+  err.textContent = '';
+  if (!data.name || !data.login) { err.textContent = 'Введи имя и логин'; return; }
+  if (!id && !pwd) { err.textContent = 'Пароль обязателен при создании'; return; }
+  try {
+    if (id) await API.updateUser(id, data);
+    else await API.createUser(data);
+    closeModal();
+    await render();
+    showToast('<img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"> Сохранено','success');
+  } catch (e) { err.textContent = e.message; }
+}
+
+async function removeUser(id) {
+  if (!confirm('Удалить пользователя? Прогресс ученика тоже удалится.')) return;
+  try { await API.deleteUser(id); await render(); showToast('Удалено','success'); }
+  catch (e) { alert(e.message); }
+}
+
+function toggleStudentFields() {
+  const role = document.getElementById('f_role').value;
+  const sf = document.getElementById('studentFields');
+  if (sf) sf.style.display = (role === 'student') ? '' : 'none';
+}
+
+function renderModules() {
+  document.getElementById('tab').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.modules">Модули и темы</h1>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="API.exportDownload('modules','csv')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/2965/2965335.png" alt=""> <span data-i18n="common.export">Экспорт</span></button>
+        ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openImport('modules')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/2965/2965300.png" alt=""> <span data-i18n="common.import">Импорт</span></button>` : ''}
+        <button class="btn" onclick="openModuleForm()">Добавить модуль</button>
+      </div>
+    </div>
+    <table class="table">
+      <thead><tr><th>ID</th><th>Язык</th><th>Название</th><th>Видео</th><th>Действия</th></tr></thead>
+      <tbody>
+        ${cache.modules.map(m => {
+          const lang = KURSOR_DB.LANGS[m.lang];
+          return `
+            <tr>
+              <td><code>${escapeHtml(m.id)}</code></td>
+              <td>${lang ? `<span class="lang-badge ${lang.class}">${lang.icon ? `<img src="${lang.icon}" style="width:14px;height:14px;object-fit:contain;vertical-align:-2px">` : ''} ${lang.name}</span>` : m.lang}</td>
+              <td><b>${escapeHtml(m.title)}</b><div style="font-size:12px;color:#64748b">${escapeHtml((m.description||'').slice(0,80))}</div></td>
+              <td>${m.video ? '<img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px">' : '—'}</td>
+              <td>
+                <button class="btn btn-ghost" title="Редактировать" onclick="openModuleForm('${m.id}')"><img src="https://cdn-icons-png.flaticon.com/512/1159/1159633.png" style="width:18px;height:18px;vertical-align:-3px"></button>
+                ${user.role==='admin' ? `<button class="btn btn-ghost" title="Удалить" style="color:#ef4444" onclick="removeModule('${m.id}')"><img src="https://cdn-icons-png.flaticon.com/512/3221/3221897.png" style="width:18px;height:18px;vertical-align:-3px"></button>` : ''}
+              </td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function openModuleForm(id) {
+  const m = id ? cache.modules.find(x => x.id === id) : { lang:'python', title:'', description:'', video:'', explanation:'' };
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id ? 'Редактировать' : 'Создать'} модуль</h2>
+    <div class="form-group"><label>ID (уникальный, латиницей)</label><input class="form-input" id="m_id" value="${escapeHtml(m.id||'')}" ${id?'readonly':''}></div>
+    <div class="form-group"><label>Язык / технология</label>
+      <select class="form-input" id="m_lang">
+        ${Object.entries(KURSOR_DB.LANGS).map(([k,l]) => `<option value="${k}" ${m.lang===k?'selected':''}>${l.icon ? `<img src="${l.icon}" style="width:14px;height:14px;object-fit:contain;vertical-align:-2px">` : ''} ${l.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Название модуля</label><input class="form-input" id="m_title" value="${escapeHtml(m.title||'')}"></div>
+    <div class="form-group"><label>Короткое описание</label><textarea class="form-input" id="m_desc" rows="2">${escapeHtml(m.description||'')}</textarea></div>
+    <div class="form-group"><label>YouTube (embed-формат)</label><input class="form-input" id="m_video" value="${escapeHtml(m.video||'')}" placeholder="https://www.youtube.com/embed/..."></div>
+    <div class="form-group"><label>Объяснение (HTML)</label>
+      <textarea class="form-input" id="m_expl" rows="10" style="font-family:Fira Code,monospace;font-size:13px">${escapeHtml(m.explanation||'')}</textarea>
+    </div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-success" onclick="saveModule('${id||''}')">Сохранить</button>
+    </div>
+  `;
+  document.getElementById('modal').classList.add('active');
+}
+
+async function saveModule(id) {
+  const data = {
+    id: document.getElementById('m_id').value.trim() || ('mod_'+Date.now()),
+    lang: document.getElementById('m_lang').value,
+    title: document.getElementById('m_title').value.trim(),
+    description: document.getElementById('m_desc').value.trim(),
+    video: document.getElementById('m_video').value.trim(),
+    explanation: document.getElementById('m_expl').value,
+  };
+  const err = document.getElementById('modalErr');
+  if (!data.title) { err.textContent = 'Введи название'; return; }
+  try {
+    if (id) await API.updateModule(id, data);
+    else await API.createModule(data);
+    closeModal(); await render(); showToast('<img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"> Сохранено','success');
+  } catch (e) { err.textContent = e.message; }
+}
+
+async function removeModule(id) {
+  if (!confirm('Удалить модуль? Связанные задачи останутся, но потеряют модуль.')) return;
+  try { await API.deleteModule(id); await render(); }
+  catch (e) { alert(e.message); }
+}
+
+function renderTasks() {
+  document.getElementById('tab').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1>Задачи (${cache.tasks.length})</h1>
+      <button class="btn" onclick="openTaskForm()">Добавить задачу</button>
+    </div>
+    <input class="form-input" id="taskSearch" placeholder="Поиск по названию..." style="margin-bottom:14px" oninput="filterTasksTable()">
+    <table class="table" id="tasksTable">
+      <thead><tr><th>ID</th><th>Тип</th><th>Модуль</th><th>Название</th><th>Сложность</th><th>Действия</th></tr></thead>
+      <tbody>
+        ${cache.tasks.map(t => {
+          const m = cache.modules.find(m => m.id === t.module);
+          const lang = m ? KURSOR_DB.LANGS[m.lang] : null;
+          const typeLabel = {
+            quiz:'Тест', fill:'Пропуск', order:'Порядок',
+            code:'Код Python', java:'Код Java', cpp:'Код C++',
+            project:'Проект',
+            scratch:'Интерактив (Scratch)',
+            htmlcss:'Интерактив (HTML)',
+            blockly:'Интерактив (Blockly)'
+          };
+          return `
+            <tr data-search="${escapeHtml((t.title + ' ' + (m?.title||'') + ' ' + (lang?.name||'')).toLowerCase())}">
+              <td>${t.id}</td>
+              <td>${typeLabel[t.type] || t.type}</td>
+              <td>${lang ? `<span class="lang-badge ${lang.class}"><img src="${lang.icon}" style="width:14px;height:14px;object-fit:contain;vertical-align:-2px"></span>` : ''} ${m ? escapeHtml(m.title) : '<span style="color:red">нет модуля</span>'}</td>
+              <td><b>${escapeHtml(t.title)}</b></td>
+              <td>${'★'.repeat(t.difficulty||1)}</td>
+              <td>
+                <button class="btn btn-ghost" title="Редактировать" onclick="openTaskForm(${t.id})"><img src="https://cdn-icons-png.flaticon.com/512/1159/1159633.png" style="width:18px;height:18px;vertical-align:-3px"></button>
+                <button class="btn btn-ghost" title="Удалить" style="color:#ef4444" onclick="removeTask(${t.id})"><img src="https://cdn-icons-png.flaticon.com/512/3221/3221897.png" style="width:18px;height:18px;vertical-align:-3px"></button>
+              </td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function filterTasksTable() {
+  const q = document.getElementById('taskSearch').value.toLowerCase();
+  document.querySelectorAll('#tasksTable tbody tr').forEach(tr => {
+    tr.style.display = tr.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+
+function openTaskForm(id) {
+  const t = id ? cache.tasks.find(x => x.id === id) : { type:'quiz', difficulty:1, module: cache.modules[0]?.id || '' };
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id ? 'Редактировать' : 'Создать'} задачу</h2>
+    <div class="form-group"><label>Модуль</label>
+      <select class="form-input" id="t_module">
+        ${cache.modules.map(m => {
+          const lang = KURSOR_DB.LANGS[m.lang];
+          return `<option value="${m.id}" ${t.module===m.id?'selected':''}>${lang?.icon ? `<img src="${lang.icon}" style="width:14px;height:14px;vertical-align:-2px">` : ''} ${escapeHtml(m.title)}</option>`;
+        }).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Тип задачи</label>
+      <select class="form-input" id="t_type" onchange="updateTaskTypeFields()">
+        <option value="quiz" ${t.type==='quiz'?'selected':''}>Тест (выбор из 4)</option>
+        <option value="fill" ${t.type==='fill'?'selected':''}>Заполни пропуск</option>
+        <option value="order" ${t.type==='order'?'selected':''}>Расставь по порядку</option>
+        <option value="code" ${t.type==='code'?'selected':''}>Напиши код (Python)</option>
+        <option value="java" ${t.type==='java'?'selected':''}>Напиши код (Java) — авто-проверка</option>
+        <option value="cpp" ${t.type==='cpp'?'selected':''}>Напиши код (C++) — авто-проверка</option>
+        <option value="project" ${t.type==='project'?'selected':''}>Мини-проект</option>
+        <option value="scratch" ${t.type==='scratch'?'selected':''}>Интерактивная задача (Scratch / TurboWarp)</option>
+        <option value="htmlcss" ${t.type==='htmlcss'?'selected':''}>Интерактивная задача (HTML / CSS)</option>
+        <option value="blockly" ${t.type==='blockly'?'selected':''}>Интерактивная задача (Blockly)</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Сложность (1-3)</label><input class="form-input" id="t_diff" type="number" min="1" max="3" value="${t.difficulty||1}"></div>
+    <div class="form-group"><label>Название</label><input class="form-input" id="t_title" value="${escapeHtml(t.title||'')}"></div>
+    <div class="form-group"><label>Условие задачи</label><textarea class="form-input" id="t_desc" rows="3">${escapeHtml(t.description||'')}</textarea></div>
+    <div class="form-group"><label>Подсказка / объяснение</label><textarea class="form-input" id="t_explain" rows="2">${escapeHtml(t.explain||'')}</textarea></div>
+    <div id="typeFields"></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-outline" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-success" onclick="saveTask(${id||'null'})">Сохранить</button>
+    </div>
+  `;
+  window._editTask = t;
+  updateTaskTypeFields();
+  document.getElementById('modal').classList.add('active');
+}
+
+function updateTaskTypeFields() {
+  const type = document.getElementById('t_type').value;
+  const t = window._editTask || {};
+  let html = '';
+  if (type === 'quiz') {
+    const opts = t.options || ['','','',''];
+    html = `<label>Варианты ответов (4 шт.) — отметь правильный:</label>
+      ${[0,1,2,3].map(i => `
+        <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+          <input type="radio" name="t_correct" value="${i}" ${t.answer===i?'checked':''} style="width:20px;height:20px">
+          <input class="form-input t_option" value="${escapeHtml(opts[i]||'')}" placeholder="Вариант ${String.fromCharCode(65+i)}">
+        </div>`).join('')}`;
+  } else if (type === 'fill') {
+    html = `<label>Правильный ответ (точное слово/число)</label>
+      <input class="form-input" id="t_answer" value="${escapeHtml(t.answer||'')}">`;
+  } else if (type === 'order') {
+    html = `<label>Строки в ПРАВИЛЬНОМ порядке (каждая на новой строке)</label>
+      <textarea class="form-input" id="t_items" rows="6" style="font-family:Fira Code,monospace">${escapeHtml((t.items||[]).join('\n'))}</textarea>`;
+  } else if (type === 'code') {
+    html = `
+      <label>Ожидаемый вывод (что должно вывести print)</label>
+      <textarea class="form-input" id="t_expected" rows="3" style="font-family:Fira Code,monospace">${escapeHtml(t.expectedOutput||'')}</textarea>
+      <label style="margin-top:10px">Стартовый код (необязательно)</label>
+      <textarea class="form-input" id="t_starter" rows="4" style="font-family:Fira Code,monospace">${escapeHtml(t.starter||'')}</textarea>`;
+  } else if (type === 'project') {
+    html = `<p style="color:#64748b;font-size:14px">Для проектов ученик загружает текст/ссылку, учитель проверяет вручную.</p>`;
+  } else if (type === 'scratch') {
+    html = `
+      <label>ID проекта Scratch (необязательно)</label>
+      <input class="form-input" id="t_scratch_id" value="${escapeHtml(t.scratchProjectId||'')}" placeholder="Например: 123456789 — оставь пустым для пустого редактора">
+      <p style="color:#64748b;font-size:13px;margin-top:6px">Ученик открывает TurboWarp прямо в задаче, делает проект и описывает что сделал. Учитель проверяет вручную.</p>`;
+  } else if (type === 'htmlcss') {
+    const defHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    /* твои стили */
+  </style>
+</head>
+<body>
+  <h1>Привет!</h1>
+</body>
+</html>`;
+    html = `
+      <label>Стартовый HTML/CSS код</label>
+      <textarea class="form-input" id="t_starter" rows="6" style="font-family:Fira Code,monospace;font-size:13px">${escapeHtml(t.starter||defHtml)}</textarea>
+      <label style="margin-top:10px">Ожидаемый результат (описание для ученика, необязательно)</label>
+      <textarea class="form-input" id="t_expected" rows="2">${escapeHtml(t.expectedOutput||'')}</textarea>`;
+  } else if (type === 'blockly') {
+    html = `
+      <label>Ожидаемый JavaScript-код (необязательно — для автопроверки)</label>
+      <textarea class="form-input" id="t_expected" rows="3" style="font-family:Fira Code,monospace;font-size:13px">${escapeHtml(t.expectedOutput||'')}</textarea>
+      <p style="color:#64748b;font-size:13px;margin-top:6px">Ученик составляет программу из блоков Blockly. Можно проверять автоматически или вручную.</p>`;
+  } else if (type === 'java' || type === 'cpp') {
+    const langLabel = type === 'java' ? 'Java' : 'C++';
+    const defStarter = type === 'java'
+      ? 'import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        // твой код\n    }\n}\n'
+      : '#include <iostream>\nusing namespace std;\n\nint main() {\n    // твой код\n    return 0;\n}\n';
+    html = `
+      <label>Ожидаемый вывод программы (stdout)</label>
+      <textarea class="form-input" id="t_expected" rows="3" style="font-family:Fira Code,monospace">${escapeHtml(t.expectedOutput||'')}</textarea>
+      <label style="margin-top:10px">Ввод (stdin, необязательно)</label>
+      <textarea class="form-input" id="t_stdin" rows="2" style="font-family:Fira Code,monospace">${escapeHtml(t.stdin||'')}</textarea>
+      <label style="margin-top:10px">Стартовый код ${langLabel} (необязательно)</label>
+      <textarea class="form-input" id="t_starter" rows="6" style="font-family:Fira Code,monospace;font-size:13px">${escapeHtml(t.starter||defStarter)}</textarea>
+      <p style="color:#64748b;font-size:13px;margin-top:6px">Код компилируется и запускается на бесплатном публичном сервисе Piston (https://emkc.org). Проверка — сравнение stdout с ожидаемым.</p>`;
+  }
+  document.getElementById('typeFields').innerHTML = html;
+}
+
+async function saveTask(id) {
+  const type = document.getElementById('t_type').value;
+  const data = {
+    type,
+    module: document.getElementById('t_module').value,
+    difficulty: parseInt(document.getElementById('t_diff').value) || 1,
+    title: document.getElementById('t_title').value.trim(),
+    description: document.getElementById('t_desc').value.trim(),
+    explain: document.getElementById('t_explain').value.trim(),
+  };
+  const err = document.getElementById('modalErr');
+  if (!data.title || !data.description) { err.textContent = 'Введи название и условие'; return; }
+  if (type === 'quiz') {
+    data.options = Array.from(document.querySelectorAll('.t_option')).map(i => i.value.trim());
+    const r = document.querySelector('input[name=t_correct]:checked');
+    if (!r) { err.textContent = 'Отметь правильный вариант'; return; }
+    data.answer = parseInt(r.value);
+  } else if (type === 'fill') {
+    data.answer = document.getElementById('t_answer').value.trim();
+    if (!data.answer) { err.textContent = 'Введи правильный ответ'; return; }
+  } else if (type === 'order') {
+    data.items = document.getElementById('t_items').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    if (data.items.length < 2) { err.textContent = 'Минимум 2 строки'; return; }
+  } else if (type === 'code') {
+    data.expectedOutput = document.getElementById('t_expected').value;
+    data.starter = document.getElementById('t_starter').value;
+  } else if (type === 'scratch') {
+    data.scratchProjectId = document.getElementById('t_scratch_id').value.trim();
+  } else if (type === 'htmlcss') {
+    data.starter = document.getElementById('t_starter').value;
+    data.expectedOutput = document.getElementById('t_expected').value;
+  } else if (type === 'blockly') {
+    data.expectedOutput = document.getElementById('t_expected').value;
+  } else if (type === 'java' || type === 'cpp') {
+    data.expectedOutput = document.getElementById('t_expected').value;
+    data.starter = document.getElementById('t_starter').value;
+    data.stdin = document.getElementById('t_stdin').value;
+  }
+
+  try {
+    if (id && id !== 'null') await API.updateTask(id, data);
+    else await API.createTask(data);
+    closeModal(); await render(); showToast('<img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"> Сохранено','success');
+  } catch (e) { err.textContent = e.message; }
+}
+
+async function removeTask(id) {
+  if (!confirm('Удалить задачу?')) return;
+  try { await API.deleteTask(id); await render(); }
+  catch (e) { alert(e.message); }
+}
+
+/* ============================================================
+   НОВЫЕ РАЗДЕЛЫ: материалы, доступ, CRM, права, журнал, ДЗ, уведомления
+   ============================================================ */
+const tabEl = () => document.getElementById('tab');
+const fmtDate = (ms) => ms ? new Date(ms).toLocaleDateString() : '—';
+const fmtDateTime = (ms) => ms ? new Date(ms).toLocaleString() : '—';
+const _byId = (arr, id, f='id') => arr.find(x => x[f] === id);
+function moduleTitle(id) { const m = _byId(cache.modules, id); return m ? m.title : id; }
+function userName(id) { const u = _byId(cache.users, id); return u ? u.name : (id || '—'); }
+
+// ---------- Импорт (общая модалка) ----------
+function openImport(dataset) {
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${I18N.t('common.import')}: ${escapeHtml(dataset)}</h2>
+    <p style="color:#64748b;font-size:14px">Вставь данные в формате CSV или JSON. Первая строка CSV — заголовки колонок.</p>
+    <textarea class="form-input" id="imp_data" rows="10" style="font-family:Fira Code,monospace;font-size:13px" placeholder="name,login,role&#10;Иван,ivan,student"></textarea>
+    <div id="imp_preview" style="margin-top:10px"></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px;margin-top:8px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-secondary" onclick="runImport('${dataset}',true)">Проверить</button>
+      <button class="btn btn-success" onclick="runImport('${dataset}',false)" data-i18n="common.import">Импорт</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+}
+function parseImportInput() {
+  const raw = document.getElementById('imp_data').value.trim();
+  if (!raw) throw new Error('Пусто');
+  if (raw[0] === '[' || raw[0] === '{') { return { json: JSON.parse(raw) }; }
+  return { csv: raw };
+}
+async function runImport(dataset, dryRun) {
+  const err = document.getElementById('modalErr');
+  err.textContent = '';
+  try {
+    const payload = parseImportInput();
+    const r = await API.importData(dataset, payload, dryRun);
+    if (dryRun) {
+      document.getElementById('imp_preview').innerHTML =
+        `<div class="card" style="padding:12px">Всего строк: <b>${r.total}</b> · Новых: <b>${r.toCreate}</b> · Обновлений: <b>${r.toUpdate}</b>` +
+        (r.errors && r.errors.length ? `<div style="color:#ef4444;margin-top:6px">Ошибок: ${r.errors.length}<br>${r.errors.slice(0,5).map(e=>escapeHtml(JSON.stringify(e))).join('<br>')}</div>` : '') + `</div>`;
+    } else {
+      closeModal(); showToast(I18N.t('common.saved'),'success'); _baseLoaded=false; await render();
+    }
+  } catch (e) { err.textContent = e.message; }
+}
+
+// ---------- Материалы ----------
+async function renderMaterials() {
+  const mats = await API.getMaterials();
+  const canWrite = isAdmin || (userPerms && userPerms.edit_materials);
+  tabEl().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.materials">Материалы</h1>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="API.exportDownload('materials','csv')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/2965/2965335.png" alt=""> <span data-i18n="common.export">Экспорт</span></button>
+        ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openImport('materials')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/2965/2965300.png" alt=""> <span data-i18n="common.import">Импорт</span></button>` : ''}
+        ${canWrite ? `<button class="btn" onclick="openMaterialForm()">${I18N.t('common.add')}</button>` : ''}
+      </div>
+    </div>
+    <table class="table"><thead><tr>
+      <th data-i18n="common.title">Название</th><th data-i18n="mat.course">Курс</th><th data-i18n="mat.type">Тип</th><th data-i18n="mat.link">Ссылка</th><th data-i18n="common.actions">Действия</th>
+    </tr></thead><tbody>
+      ${mats.length ? mats.map(m => `<tr>
+        <td><b>${escapeHtml(m.title)}</b></td>
+        <td>${escapeHtml(moduleTitle(m.courseId))}</td>
+        <td>${escapeHtml(m.type||'—')}</td>
+        <td>${isUrl(m.content) ? `<a href="${escapeHtml(m.content)}" target="_blank">${I18N.t('common.open')}</a>` : (m.content ? `<span style="color:#64748b">${escapeHtml(m.content.slice(0,40))}…</span>` : '—')}</td>
+        <td>${canWrite ? `<button class="btn btn-ghost" onclick="openMaterialForm('${m.id}')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/1159/1159633.png"></button>
+          <button class="btn btn-ghost" style="color:#ef4444" onclick="removeMaterial('${m.id}')"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/3221/3221897.png"></button>` : '—'}</td>
+      </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(tabEl());
+  window._mats = mats;
+}
+function isUrl(s) { return typeof s === 'string' && /^https?:\/\//i.test(s.trim()); }
+function openMaterialForm(id) {
+  const m = id ? _byId(window._mats||[], id) : { title:'', courseId: cache.modules[0]?.id||'', type:'presentation', content:'' };
+  const TYPES = [['presentation','Презентация'],['task','Задание'],['text','Текст'],['file','Файл/ссылка']];
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id ? 'Редактировать' : 'Создать'} материал</h2>
+    <div class="form-group"><label>Название</label><input class="form-input" id="mt_title" value="${escapeHtml(m.title||'')}"></div>
+    <div class="form-group"><label>Курс</label><select class="form-input" id="mt_course">
+      ${cache.modules.map(mm => `<option value="${mm.id}" ${m.courseId===mm.id?'selected':''}>${escapeHtml(mm.title)}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>Тип</label><select class="form-input" id="mt_type">
+      ${TYPES.map(([v,l])=>`<option value="${v}" ${m.type===v?'selected':''}>${l}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>Ссылка (URL) или текст материала</label>
+      <textarea class="form-input" id="mt_content" rows="4" placeholder="https://... или текст">${escapeHtml(m.content||'')}</textarea></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-success" onclick="saveMaterial('${id||''}')" data-i18n="common.save">Сохранить</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveMaterial(id) {
+  const data = {
+    title: document.getElementById('mt_title').value.trim(),
+    courseId: document.getElementById('mt_course').value,
+    type: document.getElementById('mt_type').value,
+    content: document.getElementById('mt_content').value.trim(),
+  };
+  const err = document.getElementById('modalErr');
+  if (!data.title) { err.textContent = I18N.t('common.error'); return; }
+  try {
+    if (id) await API.updateMaterial(id, data); else await API.createMaterial(data);
+    closeModal(); await render(); showToast(I18N.t('common.saved'),'success');
+  } catch (e) { err.textContent = e.message; }
+}
+async function removeMaterial(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteMaterial(id); await render(); } catch (e) { alert(e.message); }
+}
+
+// ---------- Доступ учителей к курсам ----------
+async function renderAccess() {
+  const list = await API.getCourseAccess();
+  tabEl().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.access">Доступ к курсам</h1>
+      <button class="btn" onclick="openAccessForm()">${I18N.t('common.add')}</button>
+    </div>
+    <p style="color:#64748b;margin-bottom:14px">Учитель видит и редактирует материалы курса, пока действует доступ. Закрытие доступа не удаляет материалы.</p>
+    <table class="table"><thead><tr><th>Учитель</th><th data-i18n="mat.course">Курс</th><th data-i18n="mat.expires">Доступ до</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
+    ${list.length ? list.map(a => {
+      const expired = a.expiresAt && a.expiresAt < Date.now();
+      return `<tr>
+        <td>${escapeHtml(userName(a.teacherId))}</td>
+        <td>${escapeHtml(moduleTitle(a.courseId))}</td>
+        <td><span class="badge badge-${expired?'danger':'info'}">${fmtDate(a.expiresAt)}</span></td>
+        <td><button class="btn btn-ghost btn-sm" onclick="openAccessForm('${a.id}')">${I18N.t('common.edit')}</button>
+          <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeAccess('${a.id}')">${I18N.t('common.delete')}</button></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="4" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(tabEl());
+  window._access = list;
+}
+function openAccessForm(id) {
+  const a = id ? _byId(window._access||[], id) : null;
+  const teachers = cache.users.filter(u => u.role === 'teacher' || u.role === 'assistant');
+  const defExp = a ? new Date(a.expiresAt).toISOString().slice(0,10) : new Date(Date.now()+90*864e5).toISOString().slice(0,10);
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id ? 'Изменить' : 'Выдать'} доступ</h2>
+    <div class="form-group"><label>Учитель</label><select class="form-input" id="ac_teacher" ${id?'disabled':''}>
+      ${teachers.map(t=>`<option value="${t.id}" ${a&&a.teacherId===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>Курс</label><select class="form-input" id="ac_course" ${id?'disabled':''}>
+      ${cache.modules.map(m=>`<option value="${m.id}" ${a&&a.courseId===m.id?'selected':''}>${escapeHtml(m.title)}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>Доступ до</label><input class="form-input" id="ac_exp" type="date" value="${defExp}"></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-success" onclick="saveAccess('${id||''}')" data-i18n="common.save">Сохранить</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveAccess(id) {
+  const expiresAt = new Date(document.getElementById('ac_exp').value).getTime();
+  const err = document.getElementById('modalErr');
+  try {
+    if (id) await API.updateCourseAccess(id, { expiresAt });
+    else await API.createCourseAccess({
+      teacherId: document.getElementById('ac_teacher').value,
+      courseId: document.getElementById('ac_course').value,
+      expiresAt,
+    });
+    closeModal(); await render(); showToast(I18N.t('common.saved'),'success');
+  } catch (e) { err.textContent = e.message; }
+}
+async function removeAccess(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteCourseAccess(id); await render(); } catch (e) { alert(e.message); }
+}
+
+// ---------- Филиалы ----------
+async function renderBranches() {
+  const list = await API.getBranches();
+  tabEl().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.branches">Филиалы</h1>
+      <button class="btn" onclick="openBranchForm()">${I18N.t('common.add')}</button>
+    </div>
+    <table class="table"><thead><tr><th data-i18n="common.name">Название</th><th data-i18n="common.address">Адрес</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
+    ${list.length ? list.map(b=>`<tr>
+      <td><b>${escapeHtml(b.name)}</b></td><td>${escapeHtml(b.address||'—')}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick='openBranchForm(${JSON.stringify(b.id)})'>${I18N.t('common.edit')}</button>
+        <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeBranch('${b.id}')">${I18N.t('common.delete')}</button></td>
+    </tr>`).join('') : `<tr><td colspan="3" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(tabEl());
+  window._branches = list;
+}
+function openBranchForm(id) {
+  const b = id ? _byId(window._branches||[], id) : { name:'', address:'' };
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id?'Редактировать':'Создать'} филиал</h2>
+    <div class="form-group"><label>Название</label><input class="form-input" id="br_name" value="${escapeHtml(b.name||'')}"></div>
+    <div class="form-group"><label>Адрес</label><input class="form-input" id="br_addr" value="${escapeHtml(b.address||'')}"></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-success" onclick="saveBranch('${id||''}')" data-i18n="common.save">Сохранить</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveBranch(id) {
+  const data = { name: document.getElementById('br_name').value.trim(), address: document.getElementById('br_addr').value.trim() };
+  const err = document.getElementById('modalErr');
+  if (!data.name) { err.textContent = I18N.t('common.error'); return; }
+  try { if (id) await API.updateBranch(id, data); else await API.createBranch(data);
+    closeModal(); await render(); showToast(I18N.t('common.saved'),'success'); } catch (e) { err.textContent = e.message; }
+}
+async function removeBranch(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteBranch(id); await render(); } catch (e) { alert(e.message); }
+}
+
+// ---------- Тарифы (цена в тенге + комментарий) ----------
+async function renderTariffs() {
+  const list = await API.getTariffs();
+  tabEl().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.tariffs">Тарифы</h1>
+      <button class="btn" onclick="openTariffForm()">${I18N.t('common.add')}</button>
+    </div>
+    <table class="table"><thead><tr>
+      <th data-i18n="common.name">Название</th><th data-i18n="tariff.lessons">Занятий</th><th data-i18n="tariff.price_kzt">Цена, ₸</th><th data-i18n="tariff.duration">Срок</th><th data-i18n="common.comment">Комментарий</th><th data-i18n="common.actions">Действия</th>
+    </tr></thead><tbody>
+    ${list.length ? list.map(t=>`<tr>
+      <td><b>${escapeHtml(t.name)}</b></td>
+      <td>${t.visitsCount}</td>
+      <td>${(t.price||0).toLocaleString('ru-RU')} ₸</td>
+      <td>${t.durationDays} дн.</td>
+      <td style="color:#64748b">${escapeHtml(t.comment||'—')}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="openTariffForm('${t.id}')">${I18N.t('common.edit')}</button>
+        <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeTariff('${t.id}')">${I18N.t('common.delete')}</button></td>
+    </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(tabEl());
+  window._tariffs = list;
+}
+function openTariffForm(id) {
+  const t = id ? _byId(window._tariffs||[], id) : { name:'', visitsCount:8, price:0, durationDays:30, comment:'', extraLessonsSeparate:false };
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id?'Редактировать':'Создать'} тариф</h2>
+    <div class="form-group"><label>Название</label><input class="form-input" id="tf_name" value="${escapeHtml(t.name||'')}"></div>
+    <div class="form-group"><label data-i18n="tariff.lessons">Занятий</label><input class="form-input" id="tf_visits" type="number" min="0" value="${t.visitsCount||0}"></div>
+    <div class="form-group"><label data-i18n="tariff.price_kzt">Цена, ₸</label><input class="form-input" id="tf_price" type="number" min="0" step="100" value="${t.price||0}"></div>
+    <div class="form-group"><label data-i18n="tariff.duration">Срок (дней)</label><input class="form-input" id="tf_days" type="number" min="0" value="${t.durationDays||30}"></div>
+    <div class="form-group"><label data-i18n="common.comment">Комментарий</label><textarea class="form-input" id="tf_comment" rows="2" placeholder="Например: 2 занятия в неделю">${escapeHtml(t.comment||'')}</textarea></div>
+    <label class="form-group" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="tf_extra" ${t.extraLessonsSeparate?'checked':''}> <span data-i18n="tariff.extra_separate">Доп. занятия оплачиваются отдельно</span></label>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-success" onclick="saveTariff('${id||''}')" data-i18n="common.save">Сохранить</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveTariff(id) {
+  const data = {
+    name: document.getElementById('tf_name').value.trim(),
+    visitsCount: parseInt(document.getElementById('tf_visits').value) || 0,
+    price: parseInt(document.getElementById('tf_price').value) || 0,
+    durationDays: parseInt(document.getElementById('tf_days').value) || 0,
+    comment: document.getElementById('tf_comment').value.trim(),
+    extraLessonsSeparate: document.getElementById('tf_extra').checked,
+  };
+  const err = document.getElementById('modalErr');
+  if (!data.name) { err.textContent = I18N.t('common.error'); return; }
+  try { if (id) await API.updateTariff(id, data); else await API.createTariff(data);
+    closeModal(); await render(); showToast(I18N.t('common.saved'),'success'); } catch (e) { err.textContent = e.message; }
+}
+async function removeTariff(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteTariff(id); await render(); } catch (e) { alert(e.message); }
+}
+
+// ---------- Группы ----------
+async function renderGroups() {
+  const list = await API.getGroups();
+  tabEl().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.groups">Группы</h1>
+      ${isAdmin ? `<button class="btn" onclick="openGroupForm()">${I18N.t('common.add')}</button>` : ''}
+    </div>
+    <table class="table"><thead><tr><th data-i18n="common.name">Название</th><th data-i18n="crm.branch">Филиал</th><th>Преподаватель</th><th>Учеников</th><th>Тип</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
+    ${list.length ? list.map(g=>`<tr>
+      <td><b>${escapeHtml(g.name)}</b></td>
+      <td>${escapeHtml(g.branchName||'—')}</td>
+      <td>${escapeHtml(g.teacherName||'—')}</td>
+      <td>${g.memberCount ?? 0}</td>
+      <td><span class="badge badge-info">${g.lessonKind==='extra'?'Доп.':'Основной'}</span></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="openGroupDetail('${g.id}')">${I18N.t('common.open')}</button>
+        ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openGroupForm('${g.id}')">${I18N.t('common.edit')}</button>
+        <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeGroup('${g.id}')">${I18N.t('common.delete')}</button>` : ''}</td>
+    </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(tabEl());
+  window._groups = list;
+}
+function openGroupForm(id) {
+  const g = id ? _byId(window._groups||[], id) : { name:'', branchId:(window._branches&&window._branches[0]?.id)||'', teacherId:'', assistantId:'', courseId:'', lessonKind:'main', status:'active' };
+  const teachers = cache.users.filter(u=>u.role==='teacher');
+  const assistants = cache.users.filter(u=>u.role==='assistant');
+  const branches = window._branches || [];
+  const ensureBranches = branches.length ? Promise.resolve(branches) : API.getBranches();
+  Promise.resolve(ensureBranches).then(brs => {
+    window._branches = brs;
+    document.getElementById('modalContent').innerHTML = `
+      <h2>${id?'Редактировать':'Создать'} группу</h2>
+      <div class="form-group"><label>Название</label><input class="form-input" id="g_name" value="${escapeHtml(g.name||'')}"></div>
+      <div class="form-group"><label>Филиал</label><select class="form-input" id="g_branch">
+        ${brs.map(b=>`<option value="${b.id}" ${g.branchId===b.id?'selected':''}>${escapeHtml(b.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Курс</label><select class="form-input" id="g_course">
+        <option value="">— не указан —</option>
+        ${cache.modules.map(m=>`<option value="${m.id}" ${g.courseId===m.id?'selected':''}>${escapeHtml(m.title)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Преподаватель</label><select class="form-input" id="g_teacher">
+        <option value="">—</option>${teachers.map(t=>`<option value="${t.id}" ${g.teacherId===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Ассистент</label><select class="form-input" id="g_assistant">
+        <option value="">—</option>${assistants.map(t=>`<option value="${t.id}" ${g.assistantId===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Тип занятий</label><select class="form-input" id="g_kind">
+        <option value="main" ${g.lessonKind==='main'?'selected':''}>Основной</option>
+        <option value="extra" ${g.lessonKind==='extra'?'selected':''}>Дополнительный</option></select></div>
+      <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+        <button class="btn btn-success" onclick="saveGroup('${id||''}')" data-i18n="common.save">Сохранить</button>
+      </div>`;
+    document.getElementById('modal').classList.add('active');
+    I18N.applyI18n(document.getElementById('modalContent'));
+  });
+}
+async function saveGroup(id) {
+  const data = {
+    name: document.getElementById('g_name').value.trim(),
+    branchId: document.getElementById('g_branch').value,
+    courseId: document.getElementById('g_course').value || null,
+    teacherId: document.getElementById('g_teacher').value || null,
+    assistantId: document.getElementById('g_assistant').value || null,
+    lessonKind: document.getElementById('g_kind').value,
+  };
+  const err = document.getElementById('modalErr');
+  if (!data.name || !data.branchId) { err.textContent = I18N.t('common.error'); return; }
+  try { if (id) await API.updateGroup(id, data); else await API.createGroup(data);
+    closeModal(); await render(); showToast(I18N.t('common.saved'),'success'); } catch (e) { err.textContent = e.message; }
+}
+async function removeGroup(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteGroup(id); await render(); } catch (e) { alert(e.message); }
+}
+async function openGroupDetail(id) {
+  const g = _byId(window._groups||[], id) || await API.getGroup(id);
+  const [members, schedule] = await Promise.all([API.getMembers(id), API.getSchedule(id)]);
+  const students = cache.users.filter(u=>u.role==='student');
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${escapeHtml(g.name)}</h2>
+    <h3 class="section-title" style="margin-top:8px">Ученики (${members.length})</h3>
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <select class="form-input" id="gm_student" style="flex:1">
+        ${students.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select>
+      <button class="btn btn-sm" onclick="addGroupMember('${id}')">${I18N.t('common.add')}</button>
+    </div>
+    <div id="gm_list">${members.map(m=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eef2f7">
+      <span>${escapeHtml(userName(m.studentId))}</span>
+      <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeGroupMember('${id}','${m.id}')">${I18N.t('common.delete')}</button></div>`).join('') || `<div style="color:#64748b">${I18N.t('common.none')}</div>`}</div>
+    <h3 class="section-title" style="margin-top:16px">Расписание</h3>
+    <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap">
+      <select class="form-input" id="sc_day" style="flex:1;min-width:120px">
+        ${[[1,'Пн'],[2,'Вт'],[3,'Ср'],[4,'Чт'],[5,'Пт'],[6,'Сб'],[0,'Вс']].map(([v,d])=>`<option value="${v}">${d}</option>`).join('')}</select>
+      <input class="form-input" id="sc_time" type="time" value="16:00" style="width:120px">
+      <input class="form-input" id="sc_dur" type="number" min="15" step="15" value="60" title="Длительность, мин" style="width:90px">
+      <button class="btn btn-sm" onclick="addGroupSchedule('${id}')">${I18N.t('common.add')}</button>
+    </div>
+    <div id="sc_list">${schedule.map(s=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eef2f7">
+      <span>${['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][s.weekday]||s.weekday} · ${escapeHtml(s.startTime||'')} (${s.durationMin||60} мин)</span>
+      <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeGroupSchedule('${id}','${s.id}')">${I18N.t('common.delete')}</button></div>`).join('') || `<div style="color:#64748b">${I18N.t('common.none')}</div>`}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.close">Закрыть</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function addGroupMember(gid) {
+  const studentId = document.getElementById('gm_student').value;
+  try { await API.addMember(gid, { studentId }); _baseLoaded=false; openGroupDetail(gid); } catch (e) { alert(e.message); }
+}
+async function removeGroupMember(gid, mid) {
+  try { await API.removeMember(gid, mid); openGroupDetail(gid); } catch (e) { alert(e.message); }
+}
+async function addGroupSchedule(gid) {
+  const weekday = parseInt(document.getElementById('sc_day').value);
+  const startTime = document.getElementById('sc_time').value;
+  const durationMin = parseInt(document.getElementById('sc_dur').value) || 60;
+  try { await API.addSchedule(gid, { weekday, startTime, durationMin }); openGroupDetail(gid); } catch (e) { alert(e.message); }
+}
+async function removeGroupSchedule(gid, sid) {
+  try { await API.deleteSchedule(gid, sid); openGroupDetail(gid); } catch (e) { alert(e.message); }
+}
+
+// ---------- Клиенты (CRM ученики) ----------
+async function renderClients() {
+  const [list, tariffs, branches] = await Promise.all([API.getCrmStudents(), API.getTariffs(), API.getBranches()]);
+  window._tariffs = tariffs; window._branches = branches;
+  tabEl().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 data-i18n="admin.clients">Клиенты (CRM)</h1>
+      <button class="btn" onclick="openClientForm()">${I18N.t('common.add')}</button>
+    </div>
+    <input class="form-input" id="clSearch" placeholder="${I18N.t('common.search')}" style="margin-bottom:14px" oninput="filterClients()">
+    <table class="table" id="clTable"><thead><tr>
+      <th data-i18n="crm.fullname">ФИО</th><th data-i18n="crm.tariff">Тариф</th><th data-i18n="crm.visits_left">Осталось</th><th data-i18n="common.status">Статус</th><th data-i18n="crm.parent_phone">Тел. родителя</th><th data-i18n="common.actions">Действия</th>
+    </tr></thead><tbody>
+    ${list.length ? list.map(c=>{
+      const tariff = _byId(tariffs, c.tariffId);
+      return `<tr data-search="${escapeHtml((c.fullName||'').toLowerCase())}">
+        <td><b>${escapeHtml(c.fullName||userName(c.userId))}</b></td>
+        <td>${escapeHtml(tariff?tariff.name:'—')}</td>
+        <td>${c.visitsLeft ?? 0}</td>
+        <td><span class="badge badge-${c.status==='active'?'success':c.status==='frozen'?'warning':'danger'}">${I18N.t('crm.status_'+(c.status||'inactive'))}</span></td>
+        <td>${escapeHtml(c.parentPhone||'—')}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="openClientForm('${c.userId}')">${I18N.t('common.edit')}</button>
+          <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeClient('${c.userId}')">${I18N.t('common.delete')}</button></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="6" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(tabEl());
+  window._clients = list;
+}
+function filterClients() {
+  const q = document.getElementById('clSearch').value.toLowerCase();
+  document.querySelectorAll('#clTable tbody tr').forEach(tr => {
+    if (!tr.dataset.search) return;
+    tr.style.display = tr.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+function openClientForm(id) {
+  const c = id ? _byId(window._clients||[], id, 'userId') : null;
+  const students = cache.users.filter(u=>u.role==='student');
+  const tariffs = window._tariffs || [];
+  const branches = window._branches || [];
+  const managers = cache.users.filter(u=>u.role==='admin'||u.role==='teacher');
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${id?'Карточка клиента':'Новый клиент'}</h2>
+    ${id ? `<input type="hidden" id="cl_user" value="${c.userId}">` : `
+    <div class="form-group"><label>Ученик (аккаунт)</label><select class="form-input" id="cl_user">
+      ${students.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select></div>`}
+    <div class="form-group"><label data-i18n="crm.fullname">ФИО</label><input class="form-input" id="cl_fullname" value="${escapeHtml(c?.fullName||'')}"></div>
+    <div class="form-group"><label data-i18n="crm.branch">Филиал</label><select class="form-input" id="cl_branch">
+      <option value="">—</option>${branches.map(b=>`<option value="${b.id}" ${c&&c.branchId===b.id?'selected':''}>${escapeHtml(b.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label data-i18n="crm.tariff">Тариф</label><select class="form-input" id="cl_tariff">
+      <option value="">—</option>${tariffs.map(t=>`<option value="${t.id}" ${c&&c.tariffId===t.id?'selected':''}>${escapeHtml(t.name)} (${t.visitsCount} зан.)</option>`).join('')}</select></div>
+    <div class="form-group"><label data-i18n="common.status">Статус</label><select class="form-input" id="cl_status">
+      ${['active','frozen','inactive'].map(s=>`<option value="${s}" ${c&&c.status===s?'selected':''}>${I18N.t('crm.status_'+s)}</option>`).join('')}</select></div>
+    <div class="form-group"><label data-i18n="crm.manager">Ответственный</label><select class="form-input" id="cl_manager">
+      <option value="">—</option>${managers.map(m=>`<option value="${m.id}" ${c&&c.responsibleManagerId===m.id?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label data-i18n="crm.parent_name">Имя родителя</label><input class="form-input" id="cl_parent_name" value="${escapeHtml(c?.parentName||'')}"></div>
+    <div class="form-group"><label data-i18n="crm.parent_phone">Телефон родителя</label><input class="form-input" id="cl_parent_phone" value="${escapeHtml(c?.parentPhone||'')}"></div>
+    <div class="form-group"><label data-i18n="crm.birth_date">Дата рождения</label><input class="form-input" id="cl_birth" type="date" value="${escapeHtml(c?.birthDate||'')}"></div>
+    <div class="form-group"><label data-i18n="crm.document">Документ</label><input class="form-input" id="cl_doc" value="${escapeHtml(c?.documentId||'')}"></div>
+    <label class="form-group" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="cl_video" ${c&&c.videoConsent?'checked':''}> <span data-i18n="crm.video_consent">Согласие на видеосъёмку</span></label>
+    <div class="form-group"><label data-i18n="common.comment">Комментарий</label><textarea class="form-input" id="cl_comment" rows="2">${escapeHtml(c?.comment||'')}</textarea></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-success" onclick="saveClient('${id||''}')" data-i18n="common.save">Сохранить</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveClient(id) {
+  const data = {
+    userId: document.getElementById('cl_user').value,
+    fullName: document.getElementById('cl_fullname').value.trim(),
+    branchId: document.getElementById('cl_branch').value || null,
+    tariffId: document.getElementById('cl_tariff').value || null,
+    status: document.getElementById('cl_status').value,
+    responsibleManagerId: document.getElementById('cl_manager').value || null,
+    parentName: document.getElementById('cl_parent_name').value.trim(),
+    parentPhone: document.getElementById('cl_parent_phone').value.trim(),
+    birthDate: document.getElementById('cl_birth').value || null,
+    documentId: document.getElementById('cl_doc').value.trim(),
+    videoConsent: document.getElementById('cl_video').checked,
+    comment: document.getElementById('cl_comment').value.trim(),
+  };
+  // Если выбран тариф — отметим дату выдачи абонемента, чтобы сервер рассчитал остаток занятий
+  if (data.tariffId) data.subscriptionIssuedAt = Date.now();
+  const err = document.getElementById('modalErr');
+  if (!data.userId || !data.fullName) { err.textContent = I18N.t('common.error'); return; }
+  try {
+    if (id) await API.updateCrmStudent(id, data); else await API.createCrmStudent(data);
+    closeModal(); await render(); showToast(I18N.t('common.saved'),'success');
+  } catch (e) { err.textContent = e.message; }
+}
+async function removeClient(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteCrmStudent(id); await render(); } catch (e) { alert(e.message); }
+}
+
+// ---------- Права преподавателей ----------
+async function renderPermissions() {
+  const keys = await API.getPermissionKeys();
+  const teachers = cache.users.filter(u=>u.role==='teacher'||u.role==='assistant');
+  tabEl().innerHTML = `
+    <h1 data-i18n="admin.permissions">Права доступа</h1>
+    <p style="color:#64748b;margin:6px 0 16px">Выбери преподавателя или ассистента, чтобы настроить права.</p>
+    <div class="form-group" style="max-width:360px"><select class="form-input" id="pm_teacher" onchange="loadPerms()">
+      <option value="">— выбрать —</option>
+      ${teachers.map(t=>`<option value="${t.id}">${escapeHtml(t.name)} (${t.role})</option>`).join('')}
+    </select></div>
+    <div id="pm_box"></div>`;
+  window._permKeys = keys;
+  I18N.applyI18n(tabEl());
+}
+async function loadPerms() {
+  const tid = document.getElementById('pm_teacher').value;
+  const box = document.getElementById('pm_box');
+  if (!tid) { box.innerHTML = ''; return; }
+  const perms = await API.getPermissions(tid);
+  const labels = {
+    edit_materials:'Редактировать материалы', manage_tasks:'Управлять задачами',
+    see_subscriptions:'Видеть абонементы/оплаты', conduct_lessons:'Проводить занятия',
+    upload_artifacts:'Загружать материалы занятий', write_feedback:'Писать обратную связь',
+  };
+  box.innerHTML = `<div class="card" style="padding:16px;max-width:480px">
+    ${(window._permKeys||Object.keys(labels)).map(k=>`
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 0">
+        <input type="checkbox" class="pm_check" data-key="${k}" ${perms[k]?'checked':''} style="width:18px;height:18px">
+        <span>${labels[k]||k}</span>
+      </label>`).join('')}
+    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <button class="btn btn-success" onclick="savePerms('${tid}')" data-i18n="common.save">Сохранить</button>
+    </div>
+  </div>`;
+  I18N.applyI18n(box);
+}
+async function savePerms(tid) {
+  const data = {};
+  document.querySelectorAll('.pm_check').forEach(c => data[c.dataset.key] = c.checked);
+  try { await API.setPermissions(tid, data); showToast(I18N.t('common.saved'),'success'); } catch (e) { alert(e.message); }
+}
+
+// ---------- Журнал занятий ----------
+async function renderSessions() {
+  const groups = await API.getGroups();
+  window._groups = groups;
+  tabEl().innerHTML = `
+    <h1 data-i18n="admin.sessions">Журнал занятий</h1>
+    <div class="form-group" style="max-width:360px;margin-top:10px"><select class="form-input" id="ss_group" onchange="loadSessions()">
+      <option value="">— выбрать группу —</option>
+      ${groups.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}
+    </select></div>
+    <div id="ss_box"></div>`;
+  I18N.applyI18n(tabEl());
+}
+async function loadSessions() {
+  const gid = document.getElementById('ss_group').value;
+  const box = document.getElementById('ss_box');
+  if (!gid) { box.innerHTML=''; return; }
+  const sessions = await API.getSessions('group_id=' + encodeURIComponent(gid));
+  box.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn" onclick="openSessionForm('${gid}')">${I18N.t('session.conduct')}</button>
+    </div>
+    <table class="table"><thead><tr><th data-i18n="common.date">Дата</th><th data-i18n="session.topic">Тема</th><th>Присутствовало</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
+    ${sessions.length ? sessions.map(s=>`<tr>
+      <td>${fmtDate(s.date)}</td><td>${escapeHtml(s.topic||'—')}</td><td>${s.presentCount ?? 0}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="openAttendance('${s.id}','${gid}')">${I18N.t('session.attendance')}</button>
+        <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeSession('${s.id}')">${I18N.t('common.delete')}</button></td>
+    </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(box);
+}
+function openSessionForm(gid) {
+  document.getElementById('modalContent').innerHTML = `
+    <h2 data-i18n="session.conduct">Провести занятие</h2>
+    <div class="form-group"><label data-i18n="common.date">Дата</label><input class="form-input" id="se_date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="form-group"><label data-i18n="session.topic">Тема</label><input class="form-input" id="se_topic"></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-success" onclick="saveSession('${gid}')" data-i18n="common.create">Создать</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveSession(gid) {
+  const data = { groupId: gid, date: new Date(document.getElementById('se_date').value).getTime(), topic: document.getElementById('se_topic').value.trim() };
+  const err = document.getElementById('modalErr');
+  try { const s = await API.createSession(data); closeModal(); await loadSessions(); openAttendance(s.id, gid); }
+  catch (e) { err.textContent = e.message; }
+}
+async function removeSession(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteSession(id); await loadSessions(); } catch (e) { alert(e.message); }
+}
+async function openAttendance(sessionId, groupId) {
+  const [existing, members] = await Promise.all([
+    API.getSessionAttendance(sessionId),
+    groupId ? API.getMembers(groupId) : Promise.resolve([]),
+  ]);
+  const existMap = {};
+  (existing || []).forEach(r => { existMap[r.studentId] = r.status; });
+  // полный список = состав группы ∪ уже отмеченные
+  const roster = [];
+  const seen = new Set();
+  (members || []).forEach(m => { roster.push({ studentId: m.studentId, name: m.name || userName(m.studentId) }); seen.add(m.studentId); });
+  (existing || []).forEach(r => { if (!seen.has(r.studentId)) { roster.push({ studentId: r.studentId, name: r.name || userName(r.studentId) }); seen.add(r.studentId); } });
+
+  document.getElementById('modalContent').innerHTML = `
+    <h2 data-i18n="session.attendance">Посещаемость</h2>
+    <p style="color:#64748b;font-size:13px">Отметка «${I18N.t('session.present')}» списывает одно занятие у активного абонемента. Исправление возвращает занятие.</p>
+    <div id="att_list">${roster.length ? roster.map(r=>{
+      const st = existMap[r.studentId] || 'present';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eef2f7">
+        <span>${escapeHtml(r.name)}</span>
+        <select class="form-input att_sel" data-student="${r.studentId}" style="width:160px">
+          <option value="present" ${st==='present'?'selected':''}>${I18N.t('session.present')}</option>
+          <option value="absent" ${st==='absent'?'selected':''}>${I18N.t('session.absent')}</option>
+          <option value="late" ${st==='late'?'selected':''}>${I18N.t('session.late')}</option>
+        </select>
+      </div>`;
+    }).join('') : `<div style="color:#64748b">${I18N.t('common.none')} — в группе нет учеников</div>`}</div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.close">Закрыть</button>
+      <button class="btn btn-success" onclick="saveAttendance('${sessionId}')" data-i18n="session.save_attendance">Сохранить</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveAttendance(sessionId) {
+  const records = Array.from(document.querySelectorAll('.att_sel')).map(s => ({ studentId: s.dataset.student, status: s.value }));
+  try { await API.saveAttendance({ lessonSessionId: sessionId, records }); closeModal(); showToast(I18N.t('common.saved'),'success'); }
+  catch (e) { document.getElementById('modalErr').textContent = e.message; }
+}
+
+// ---------- Домашние задания (привязаны к занятиям) ----------
+async function renderHomeworkAdmin() {
+  const groups = await API.getGroups();
+  window._groups = groups;
+  tabEl().innerHTML = `
+    <h1 data-i18n="admin.homework">Домашние задания</h1>
+    <p style="color:#64748b;margin:6px 0 14px">Домашнее задание привязывается к проведённому занятию. Выбери группу.</p>
+    <div class="form-group" style="max-width:360px"><select class="form-input" id="hw_group" onchange="loadHw()">
+      <option value="">— выбрать группу —</option>
+      ${groups.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}
+    </select></div>
+    <div id="hw_box"></div>`;
+  I18N.applyI18n(tabEl());
+}
+async function loadHw() {
+  const gid = document.getElementById('hw_group').value;
+  const box = document.getElementById('hw_box');
+  if (!gid) { box.innerHTML=''; return; }
+  const [sessions, list] = await Promise.all([
+    API.getSessions('group_id=' + encodeURIComponent(gid)),
+    API.getHomework('group_id=' + encodeURIComponent(gid)),
+  ]);
+  window._hwSessions = sessions;
+  box.innerHTML = `
+    <h3 class="section-title">Занятия группы</h3>
+    <table class="table"><thead><tr><th data-i18n="common.date">Дата</th><th data-i18n="session.topic">Тема</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
+    ${sessions.length ? sessions.map(s=>`<tr><td>${fmtDate(s.date)}</td><td>${escapeHtml(s.topic||'—')}</td>
+      <td><button class="btn btn-sm" onclick="openHwForm('${s.id}')">${I18N.t('common.add')} ДЗ</button></td></tr>`).join('')
+      : `<tr><td colspan="3" style="text-align:center;color:#64748b">${I18N.t('common.none')} — сначала проведите занятие</td></tr>`}
+    </tbody></table>
+    <h3 class="section-title" style="margin-top:18px">Назначенные ДЗ</h3>
+    <table class="table"><thead><tr><th>Модуль</th><th>Задач</th><th>Срок</th><th>Занятие</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
+    ${list.length ? list.map(h=>`<tr>
+      <td>${escapeHtml(h.moduleTitle||'—')}</td>
+      <td>${(h.taskIds||[]).length}</td>
+      <td>${fmtDate(h.dueDate)}</td>
+      <td>${fmtDate(h.sessionDate)}</td>
+      <td><button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="removeHw('${h.id}')">${I18N.t('common.delete')}</button></td>
+    </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:#64748b">${I18N.t('common.none')}</td></tr>`}
+    </tbody></table>`;
+  I18N.applyI18n(box);
+}
+function openHwForm(sessionId) {
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${I18N.t('admin.homework')}</h2>
+    <div class="form-group"><label>Модуль (необязательно — назначит все задачи модуля)</label><select class="form-input" id="hwf_module">
+      <option value="">— не указан —</option>
+      ${cache.modules.map(m=>`<option value="${m.id}">${escapeHtml(m.title)}</option>`).join('')}</select></div>
+    <div class="form-group"><label>Или ID конкретных задач через запятую</label><input class="form-input" id="hwf_tasks" placeholder="напр. 12, 15, 18"></div>
+    <div class="form-group"><label>Срок сдачи (необязательно)</label><input class="form-input" id="hwf_due" type="date"></div>
+    <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
+      <button class="btn btn-success" onclick="saveHw('${sessionId}')" data-i18n="common.create">Создать</button>
+    </div>`;
+  document.getElementById('modal').classList.add('active');
+  I18N.applyI18n(document.getElementById('modalContent'));
+}
+async function saveHw(sessionId) {
+  const taskIds = document.getElementById('hwf_tasks').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const moduleId = document.getElementById('hwf_module').value || null;
+  const dueRaw = document.getElementById('hwf_due').value;
+  const data = { lessonSessionId: sessionId, moduleId, taskIds, dueDate: dueRaw ? new Date(dueRaw).getTime() : null };
+  const err = document.getElementById('modalErr');
+  if (!moduleId && !taskIds.length) { err.textContent = 'Укажите модуль или задачи'; return; }
+  try { await API.createHomework(data); closeModal(); await loadHw(); showToast(I18N.t('common.saved'),'success'); }
+  catch (e) { err.textContent = e.message; }
+}
+async function removeHw(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try { await API.deleteHomework(id); await loadHw(); } catch (e) { alert(e.message); }
+}
+
+// ---------- Уведомления ----------
+async function renderNotificationsTab() {
+  const { items } = await API.getNotifications();
+  tabEl().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h1 data-i18n="admin.notifications">Уведомления</h1>
+      <button class="btn btn-ghost btn-sm" onclick="markAllNotif();setTimeout(()=>render(),200)">${I18N.t('notif.mark_all')}</button>
+    </div>
+    ${items.length ? `<div class="card" style="padding:0">${items.map(n=>`
+      <a href="${n.link||'#'}" onclick="markNotif('${n.id}')" class="notif-item ${n.read?'':'unread'}" style="border-bottom:1px solid #eef2f7">
+        <div class="notif-text">${escapeHtml(n.text)}</div>
+        <div class="notif-time">${fmtDateTime(n.createdAt)}</div>
+      </a>`).join('')}</div>` : `<div class="card" style="padding:24px;text-align:center;color:#64748b">${I18N.t('notif.empty')}</div>`}`;
+  I18N.applyI18n(tabEl());
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('active'); }
+document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+</script>
+</body>
+</html>

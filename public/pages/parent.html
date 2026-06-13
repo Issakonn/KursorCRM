@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Кабинет родителя — КУРСОР</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/uploads/mascot/happy.png">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Fira+Code&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="nav"></div>
+<div class="container"><div id="content">Загружаем…</div></div>
+
+<script src="/data/database.js"></script>
+<script src="/js/i18n.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/app.js"></script>
+<script>
+const user = requireAuth(['parent']);
+let children = [];
+let activeChild = null;
+
+if (user) init();
+
+async function init() {
+  document.getElementById('nav').innerHTML = renderNavbar('parent');
+  I18N.applyI18n();
+  try {
+    children = await API.parentChildren();
+    if (!children.length) {
+      document.getElementById('content').innerHTML =
+        `<div class="card" style="padding:40px;text-align:center">
+           <img class="mascot-md" src="/uploads/mascot/explain.png" alt="" style="margin-bottom:12px">
+           <p style="color:#64748b">${I18N.t('parent.no_children')}</p>
+         </div>`;
+      return;
+    }
+    activeChild = children[0].id;
+    renderShell();
+    loadChild(activeChild);
+  } catch (err) {
+    document.getElementById('content').innerHTML =
+      `<div class="card" style="padding:30px;text-align:center;color:#ef4444">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderShell() {
+  const tabs = children.map(c => `
+    <button class="filter-chip ${c.id===activeChild?'active':''}" onclick="loadChild('${c.id}')">
+      ${c.avatarUrl ? `<img class="chip-ic" src="${escapeHtml(c.avatarUrl)}" style="border-radius:50%">` : ''}
+      ${escapeHtml(c.name)}
+    </button>`).join('');
+  document.getElementById('content').innerHTML = `
+    <h1 data-i18n="parent.title">Кабинет родителя</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">${tabs}</div>
+    <div id="childBox">${I18N.t('common.loading')}</div>`;
+  I18N.applyI18n(document.getElementById('content'));
+}
+
+async function loadChild(id) {
+  activeChild = id;
+  renderShell();
+  const box = document.getElementById('childBox');
+  try {
+    const [progress, attendance, feedback, artifacts] = await Promise.all([
+      API.parentProgress(id), API.parentAttendance(id), API.parentFeedback(id), API.parentArtifacts(id),
+    ]);
+    const child = children.find(c => c.id === id) || {};
+    const solved = Object.values(progress.tasks || {}).filter(t => t.status === 'done').length;
+
+    box.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon pink"><img src="https://cdn-icons-png.flaticon.com/512/1828/1828884.png" style="width:22px;height:22px"></div>
+          <div><div class="stat-value">${progress.points || 0}</div><div class="stat-label">${I18N.t('dash.points')}</div></div></div>
+        <div class="stat-card"><div class="stat-icon green"><img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"></div>
+          <div><div class="stat-value">${solved}</div><div class="stat-label">${I18N.t('dash.solved')}</div></div></div>
+        <div class="stat-card"><div class="stat-icon orange"><img src="https://cdn-icons-png.flaticon.com/512/2972/2972531.png" style="width:22px;height:22px"></div>
+          <div><div class="stat-value">${attendance.visitsLeft != null ? attendance.visitsLeft : '—'}</div><div class="stat-label">${I18N.t('crm.visits_left')}</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue"><img src="https://cdn-icons-png.flaticon.com/512/1611/1611179.png" style="width:22px;height:22px"></div>
+          <div><div class="stat-value" style="font-size:16px">${escapeHtml(child.tariffName || '—')}</div><div class="stat-label">${I18N.t('crm.tariff')}</div></div></div>
+      </div>
+
+      <h2 class="section-title" style="margin-top:28px">${I18N.t('parent.attendance')}</h2>
+      <div class="card" style="padding:0;overflow:hidden">
+        ${attendance.records.length ? `<table class="table" style="box-shadow:none"><thead><tr>
+          <th>${I18N.t('common.date')}</th><th>${I18N.t('session.topic')}</th><th>${I18N.t('common.status')}</th></tr></thead><tbody>
+          ${attendance.records.map(r => `<tr>
+            <td>${r.date ? new Date(r.date).toLocaleDateString() : '—'}</td>
+            <td>${escapeHtml(r.topic || '—')}</td>
+            <td>${attendBadge(r.status)}</td></tr>`).join('')}
+          </tbody></table>` : `<div style="padding:20px;text-align:center;color:#64748b">${I18N.t('common.none')}</div>`}
+      </div>
+
+      <h2 class="section-title" style="margin-top:28px">${I18N.t('parent.reports')}</h2>
+      <div class="card" style="padding:16px">
+        ${artifacts.length ? `<div style="display:flex;flex-direction:column;gap:10px">
+          ${artifacts.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eef2f7;padding-bottom:8px">
+            <div>
+              <b>${artifactIcon(a.type)} ${escapeHtml(a.title || artifactLabel(a.type))}</b>
+              <div style="font-size:12px;color:#64748b">${a.sessionDate ? new Date(a.sessionDate).toLocaleDateString() : ''} ${escapeHtml(a.topic || '')}</div>
+            </div>
+            <div>${a.unavailable
+              ? `<span style="color:#94a3b8;font-size:13px">${escapeHtml(a.unavailable)}</span>`
+              : (a.url ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(a.url)}" target="_blank">${I18N.t('common.open')}</a>` : '')}</div>
+          </div>`).join('')}
+        </div>` : `<div style="text-align:center;color:#64748b">${I18N.t('common.none')}</div>`}
+      </div>
+
+      <h2 class="section-title" style="margin-top:28px">${I18N.t('parent.feedback')}</h2>
+      <div class="card" style="padding:16px">
+        ${feedback.length ? feedback.map(f => `<div style="border-bottom:1px solid #eef2f7;padding:10px 0">
+          <div style="font-size:12px;color:#64748b">${escapeHtml(f.teacherName || '')} · ${new Date(f.createdAt).toLocaleDateString()}</div>
+          <div>${escapeHtml(f.text)}</div></div>`).join('')
+          : `<div style="text-align:center;color:#64748b">${I18N.t('fb.empty')}</div>`}
+      </div>
+    `;
+  } catch (err) {
+    box.innerHTML = `<div class="card" style="padding:24px;color:#ef4444">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function attendBadge(status) {
+  if (status === 'present') return `<span class="badge badge-success">${I18N.t('session.present')}</span>`;
+  if (status === 'late') return `<span class="badge badge-warning">${I18N.t('session.late')}</span>`;
+  return `<span class="badge badge-danger">${I18N.t('session.absent')}</span>`;
+}
+function artifactLabel(type) {
+  return { video:'Видео', screenshot:'Скриншот', file:'Файл', link:'Ссылка' }[type] || 'Материал';
+}
+function artifactIcon(type) {
+  const m = { video:'1179/1179069', screenshot:'1042/1042339', file:'2965/2965335', link:'1006/1006771' };
+  const code = m[type] || '2965/2965335';
+  return `<img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/${code}.png" alt="">`;
+}
+</script>
+</body>
+</html>
