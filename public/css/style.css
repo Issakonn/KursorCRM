@@ -433,7 +433,6 @@ a:hover { text-decoration: underline; }
 .admin-sidebar .logo {
   padding: 0 24px 24px; display: flex; align-items: center; gap: 10px;
   border-bottom: 1px solid #334155; margin-bottom: 16px;
-  font-weight: 800;
 }
 .admin-sidebar .logo img { height: 36px; background: white; border-radius: 8px; padding: 4px; }
 .admin-sidebar a {

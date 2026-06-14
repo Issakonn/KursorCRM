@@ -31,29 +31,31 @@ function renderNavbar(activePage) {
   return `
   <nav class="navbar">
     <a class="navbar-logo" href="/index.html">
-      <img src="${KURSOR_DB.LOGO}" alt="КУРСОР">
+      <img src="${KURSOR_DB.LOGO}" alt="KURSOR">
     </a>
     <div class="navbar-menu">
-      ${links.map(l => `<a href="${l.href}" class="${l.key === activePage ? 'active' : ''}" style="display:inline-flex;align-items:center;gap:8px"><img class="ic ic-20" src="${l.icon}" alt=""> ${l.label}</a>`).join('')}
+      ${links.map(l => `<a href="${l.href}" class="${l.key === activePage ? 'active' : ''}" style="display:inline-flex;align-items:center;gap:8px"><img class="ic ic-20" src="${l.icon}" alt=""> <span data-i18n="${
+        l.key==='dashboard'?'nav.dashboard':l.key==='catalog'?'nav.tasks':l.key==='leaderboard'?'nav.leaderboard':l.key==='profile'?'nav.profile':l.key==='teacher'?'nav.students':l.key==='admin'?'nav.admin':l.key==='parent'?'nav.parent':'nav.manage'
+      }">${l.label}</span></a>`).join('')}
     </div>
     <div class="navbar-right" style="display:flex;align-items:center;gap:14px">
       ${langHtml}
-      <span id="notifBell" class="notif-bell" onclick="toggleNotifPanel()" title="${T('nav.notifications')}" style="position:relative;cursor:pointer;display:inline-flex">
-        <img class="ic ic-24" src="https://cdn-icons-png.flaticon.com/512/1827/1827347.png" alt="${T('nav.notifications')}">
+      <span id="notifBell" class="notif-bell" onclick="toggleNotifPanel()" data-i18n-title="nav.notifications" style="position:relative;cursor:pointer;display:inline-flex">
+        <img class="ic ic-24" src="https://cdn-icons-png.flaticon.com/512/1827/1827347.png" alt="">
         <span id="notifCount" class="notif-count" style="display:none"></span>
       </span>
       <div class="navbar-user" style="cursor:pointer">
-        <a href="/pages/profile.html" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit" title="${T('nav.my_profile')}">
+        <a href="/pages/profile.html" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit" data-i18n-title="nav.my_profile">
           ${user.avatar_url
             ? `<img src="${escapeHtml(user.avatar_url)}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover">`
             : `<div class="avatar">${initial}</div>`}
           <div>
             <div style="font-weight:700;font-size:13px">${escapeHtml(user.name)}</div>
-            <div style="font-size:11px;color:#64748b">${T('nav.my_profile')}</div>
+            <div style="font-size:11px;color:#64748b" data-i18n="nav.my_profile">${T('nav.my_profile')}</div>
           </div>
         </a>
-        <span onclick="logout()" title="${T('nav.logout')}" style="margin-left:8px;padding:6px;border-radius:6px;cursor:pointer;display:inline-flex">
-          <img class="ic ic-20" src="https://cdn-icons-png.flaticon.com/512/1828/1828479.png" alt="${T('nav.logout')}">
+        <span onclick="logout()" data-i18n-title="nav.logout" style="margin-left:8px;padding:6px;border-radius:6px;cursor:pointer;display:inline-flex">
+          <img class="ic ic-20" src="https://cdn-icons-png.flaticon.com/512/1828/1828479.png" alt="">
         </span>
       </div>
     </div>

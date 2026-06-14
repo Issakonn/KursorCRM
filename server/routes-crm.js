@@ -155,11 +155,11 @@ router.get('/groups/:id', (req, res) => {
 
 router.post('/groups', requireRole('admin'), (req, res) => {
   const { name, courseId, branchId, teacherId, assistantId, lessonKind, status } = req.body || {};
-  if (!name || !branchId || !teacherId) return res.status(400).json({ error: 'name, branchId, teacherId обязательны' });
+  if (!name || !branchId) return res.status(400).json({ error: 'name, branchId обязательны' });
   const id = genId('grp');
   db.prepare(`INSERT INTO groups (id, name, course_id, branch_id, teacher_id, assistant_id, lesson_kind, status)
               VALUES (?,?,?,?,?,?,?,?)`)
-    .run(id, String(name).trim(), courseId || null, branchId, teacherId, assistantId || null,
+    .run(id, String(name).trim(), courseId || null, branchId, teacherId || null, assistantId || null,
          ['main', 'extra'].includes(lessonKind) ? lessonKind : 'main',
          ['active', 'archived'].includes(status) ? status : 'active');
   res.status(201).json(rowToGroup(db.prepare(`${GROUP_SELECT} WHERE g.id = ?`).get(id)));

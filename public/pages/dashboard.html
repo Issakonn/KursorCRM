@@ -22,6 +22,7 @@ if (user) init();
 
 async function init() {
   document.getElementById('nav').innerHTML = renderNavbar('dashboard');
+  I18N.applyI18n(document.getElementById('nav'));
   I18N.applyI18n();
   try {
     const [tasks, modules, progress] = await Promise.all([
@@ -65,11 +66,11 @@ function render(tasks, modules, progress, homework) {
     <div class="welcome-banner fade-in">
       <img src="${KURSOR_DB.MASCOT.happy}" alt="Маскот КУРСОР" class="mascot-md">
       <div style="flex:1">
-        <h1>Привет, ${escapeHtml(user.name)}!</h1>
-        <p>Готов покорить новые задачи?</p>
+        <h1>${I18N.t('dash.greeting')}, ${escapeHtml(user.name)}!</h1>
+        <p>${I18N.t('dash.ready')}</p>
         <div style="margin-top:14px;background:rgba(255,255,255,0.2);padding:12px 16px;border-radius:12px">
           <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px">
-            <span>Твой прогресс</span><span><b>${doneCount}</b> / ${totalCount} задач</span>
+            <span>${I18N.t('dash.my_progress')}</span><span><b>${doneCount}</b> / ${totalCount} ${I18N.t('dash.tasks_of')}</span>
           </div>
           <div class="progress-bar" style="background:rgba(255,255,255,0.3)"><div class="progress-fill" style="width:${progressPercent}%"></div></div>
         </div>
@@ -77,13 +78,13 @@ function render(tasks, modules, progress, homework) {
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-icon orange"><img src="https://cdn-icons-png.flaticon.com/512/1828/1828884.png" style="width:22px;height:22px"></div><div><div class="stat-value">${progress.points}</div><div class="stat-label">Баллов</div></div></div>
-      <div class="stat-card"><div class="stat-icon pink"><img src="https://cdn-icons-png.flaticon.com/512/785/785116.png" style="width:22px;height:22px"></div><div><div class="stat-value">${progress.streak}</div><div class="stat-label">Дней подряд</div></div></div>
-      <div class="stat-card"><div class="stat-icon green"><img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"></div><div><div class="stat-value">${doneCount}</div><div class="stat-label">Задач решено</div></div></div>
-      <div class="stat-card"><div class="stat-icon purple"><img src="https://cdn-icons-png.flaticon.com/512/2583/2583344.png" style="width:22px;height:22px"></div><div><div class="stat-value">${progress.badges.length}</div><div class="stat-label">Значков</div></div></div>
+      <div class="stat-card"><div class="stat-icon orange"><img src="https://cdn-icons-png.flaticon.com/512/1828/1828884.png" style="width:22px;height:22px"></div><div><div class="stat-value">${progress.points}</div><div class="stat-label">${I18N.t('dash.points')}</div></div></div>
+      <div class="stat-card"><div class="stat-icon pink"><img src="https://cdn-icons-png.flaticon.com/512/785/785116.png" style="width:22px;height:22px"></div><div><div class="stat-value">${progress.streak}</div><div class="stat-label">${I18N.t('dash.streak')}</div></div></div>
+      <div class="stat-card"><div class="stat-icon green"><img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"></div><div><div class="stat-value">${doneCount}</div><div class="stat-label">${I18N.t('dash.solved')}</div></div></div>
+      <div class="stat-card"><div class="stat-icon purple"><img src="https://cdn-icons-png.flaticon.com/512/2583/2583344.png" style="width:22px;height:22px"></div><div><div class="stat-value">${progress.badges.length}</div><div class="stat-label">${I18N.t('dash.badges')}</div></div></div>
     </div>
 
-    <h2 class="section-title" data-i18n="dash.homework" style="margin-top:32px">Домашнее задание</h2>
+    <h2 class="section-title" data-i18n="dash.homework" style="margin-top:32px">${I18N.t('dash.homework')}</h2>
     ${(homework && homework.length) ? `
       <div style="display:flex;flex-direction:column;gap:12px">
         ${homework.map(hw => {
@@ -91,7 +92,7 @@ function render(tasks, modules, progress, homework) {
           return `<div class="card" style="padding:16px">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
               <div>
-                <b>${escapeHtml(hw.moduleTitle || 'Домашнее задание')}</b>
+                <b>${escapeHtml(hw.moduleTitle || I18N.t('dash.homework'))}</b>
                 <div style="font-size:12px;color:#64748b">${hw.dueDate ? ('до ' + new Date(hw.dueDate).toLocaleDateString()) : ''}</div>
               </div>
               ${hw.allDone
@@ -113,19 +114,19 @@ function render(tasks, modules, progress, homework) {
         }).join('')}
       </div>` : `<div class="card" style="padding:24px;text-align:center;color:#64748b">${I18N.t('dash.homework_empty')}</div>`}
 
-    <h2 class="section-title" style="margin-top:32px">Рекомендую сегодня решить</h2>
+    <h2 class="section-title" style="margin-top:32px">${I18N.t('dash.continue')}</h2>
     ${recommended.length ? `
       <div class="tasks-grid">
         ${recommended.map(t => renderTaskCard(t, progress, modules)).join('')}
       </div>` : `
       <div class="card" style="text-align:center;padding:40px">
         <img class="mascot-md" src="${KURSOR_DB.MASCOT.happy}" alt="Маскот">
-        <h3 style="margin:14px 0">Ты решил все задачи!</h3>
-        <p style="color:#64748b">Попроси учителя дать новые модули.</p>
+        <h3 style="margin:14px 0">${I18N.t('dash.all_solved')}</h3>
+        <p style="color:#64748b">${I18N.t('dash.homework_empty')}</p>
       </div>`}
 
     ${(user.languages || []).length ? `
-    <h2 class="section-title" style="margin-top:32px">Твой прогресс по языкам</h2>
+    <h2 class="section-title" style="margin-top:32px">${I18N.t('dash.lang_progress')}</h2>
     <div class="stats-grid">
       ${Object.entries(langProgress).map(([l, p]) => {
         const lang = KURSOR_DB.LANGS[l];
@@ -138,13 +139,13 @@ function render(tasks, modules, progress, homework) {
               <b>${escapeHtml(lang.name)}</b>
             </div>
             <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-            <div style="font-size:13px;color:#64748b;margin-top:8px">${p.done} / ${p.total} задач</div>
+            <div style="font-size:13px;color:#64748b;margin-top:8px">${p.done} / ${p.total} ${I18N.t('dash.tasks_of')}</div>
           </div>`;
       }).join('')}
     </div>` : ''}
 
     <div style="margin-top:32px;text-align:center">
-      <a href="/pages/catalog.html" class="btn btn-lg">Все задачи</a>
+      <a href="/pages/catalog.html" class="btn btn-lg">${I18N.t('dash.all_tasks')}</a>
     </div>
   `;
 }

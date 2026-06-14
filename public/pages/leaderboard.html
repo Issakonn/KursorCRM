@@ -19,7 +19,7 @@ const user = requireAuth(['student','teacher','admin']);
 if (user) init();
 
 async function init() {
-  document.getElementById('nav').innerHTML = renderNavbar('leaderboard');
+  document.getElementById('nav').innerHTML = renderNavbar('leaderboard'); I18N.applyI18n(document.getElementById('nav'));
   try {
     const ranked = await API._request('GET', '/api/progress/leaderboard');
     render(ranked);
@@ -34,8 +34,8 @@ function render(ranked) {
     <div class="welcome-banner">
       <img src="${KURSOR_DB.MASCOT.happy}" class="mascot-md" alt="">
       <div>
-        <h1>Доска лидеров</h1>
-        <p>Топ учеников КУРСОР. Покори вершину.</p>
+        <h1>${I18N.t('lb.title')}</h1>
+        <p>${I18N.t('lb.subtitle')}</p>
       </div>
     </div>
     <div class="leader-list">
@@ -48,18 +48,18 @@ function render(ranked) {
             <div class="leader-rank ${rankClass}">${i+1}</div>
             <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#667eea,#764ba2);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px">${initial}</div>
             <div class="leader-info">
-              <div class="name">${escapeHtml(s.name)} ${isMe ? '<span class="badge badge-info">это ты!</span>' : ''}</div>
+              <div class="name">${escapeHtml(s.name)} ${isMe ? `<span class="badge badge-info">${I18N.t('lb.its_you')}</span>` : ''}</div>
               <div class="stats" style="display:flex;align-items:center;gap:8px">
-                <img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:13px;height:13px"> ${s.done} задач
-                <img src="https://cdn-icons-png.flaticon.com/512/785/785116.png" style="width:13px;height:13px"> ${s.streak} дн.
-                <img src="https://cdn-icons-png.flaticon.com/512/2583/2583344.png" style="width:13px;height:13px"> ${s.badges} значков
+                <img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:13px;height:13px"> ${s.done} ${I18N.t('lb.tasks')}
+                <img src="https://cdn-icons-png.flaticon.com/512/785/785116.png" style="width:13px;height:13px"> ${s.streak} ${I18N.t('lb.days')}
+                <img src="https://cdn-icons-png.flaticon.com/512/2583/2583344.png" style="width:13px;height:13px"> ${s.badges} ${I18N.t('lb.badges')}
               </div>
             </div>
             <div class="leader-points" style="display:flex;align-items:center;gap:5px">
               <img src="https://cdn-icons-png.flaticon.com/512/1828/1828884.png" style="width:18px;height:18px"> ${s.points}
             </div>
           </div>`;
-      }).join('') || '<div class="card" style="text-align:center;padding:30px">Пока нет участников</div>'}
+      }).join('') || `<div class="card" style="text-align:center;padding:30px">${I18N.t('lb.no_participants')}</div>`}
     </div>
   `;
 }

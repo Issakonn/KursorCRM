@@ -53,7 +53,7 @@ const user = requireAuth(['student','teacher','admin']);
 if (user) init();
 
 async function init() {
-  document.getElementById('nav').innerHTML = renderNavbar('profile');
+  document.getElementById('nav').innerHTML = renderNavbar('profile'); I18N.applyI18n(document.getElementById('nav'));
   I18N.applyI18n();
   try {
     try { const fresh = await API._request('GET','/api/auth/me'); Object.assign(user, fresh.user || {}); localStorage.setItem('kursor_user_cache', JSON.stringify(user)); } catch {}
@@ -262,7 +262,7 @@ function openAvatarModal() {
       user.avatar_url = r.avatar_url;
       closeModal();
       showToast('Аватарка обновлена', 'success');
-      document.getElementById('nav').innerHTML = renderNavbar('profile');
+      document.getElementById('nav').innerHTML = renderNavbar('profile'); I18N.applyI18n(document.getElementById('nav'));
       init();
     } catch (e) { showErr(e.message); saveBtn.disabled = false; saveBtn.textContent = 'Сохранить'; }
   };
@@ -275,7 +275,7 @@ function openAvatarModal() {
       user.avatar_url = null;
       closeModal();
       showToast('Аватарка удалена', 'success');
-      document.getElementById('nav').innerHTML = renderNavbar('profile');
+      document.getElementById('nav').innerHTML = renderNavbar('profile'); I18N.applyI18n(document.getElementById('nav'));
       init();
     } catch (e) { showErr(e.message); delBtn.disabled = false; }
   };

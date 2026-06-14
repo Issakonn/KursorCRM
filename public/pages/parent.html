@@ -24,7 +24,7 @@ let activeChild = null;
 if (user) init();
 
 async function init() {
-  document.getElementById('nav').innerHTML = renderNavbar('parent');
+  document.getElementById('nav').innerHTML = renderNavbar('parent'); I18N.applyI18n(document.getElementById('nav'));
   I18N.applyI18n();
   try {
     children = await API.parentChildren();

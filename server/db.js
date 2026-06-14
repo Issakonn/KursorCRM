@@ -182,6 +182,17 @@ try {
    foreign_keys OFF + копирование только существующих колонок.
    ============================================================ */
 try {
+  // Если прошлый запуск упал во время миграции, таблица users_old могла остаться.
+  // Восстанавливаем её как users, если основной таблицы users нет.
+  const usersExists    = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+  const usersOldExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users_old'").get();
+  if (!usersExists && usersOldExists) {
+    console.log('[db] Найдена осиротевшая таблица users_old — восстанавливаем как users.');
+    db.pragma('foreign_keys = OFF');
+    db.exec(`ALTER TABLE users_old RENAME TO users`);
+    db.pragma('foreign_keys = ON');
+  }
+
   const usersSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
   // Если CHECK ещё ограничивает роли (нет 'parent') — пересоздаём таблицу без CHECK
   const needsRoleMigration = usersSql && usersSql.sql.includes("CHECK(role IN");
@@ -194,6 +205,9 @@ try {
     // Используем db.pragma() + db.transaction() для корректной работы.
     db.pragma('foreign_keys = OFF');
     db.transaction(() => {
+      // Удалить осиротевшую users_old если есть, чтобы RENAME не упал
+      const orphan = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users_old'").get();
+      if (orphan) db.exec(`DROP TABLE users_old`);
       db.exec(`ALTER TABLE users RENAME TO users_old`);
       db.exec(`CREATE TABLE users (
         id            TEXT PRIMARY KEY,
