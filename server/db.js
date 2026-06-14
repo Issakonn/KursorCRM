@@ -130,32 +130,32 @@ try {
     if (oldCols.includes('scratch_project_id')) newCols.push('scratch_project_id');
     if (oldCols.includes('stdin')) newCols.push('stdin');
     const copyCols = newCols.filter(c => oldCols.includes(c)).join(',');
-    db.exec(`
-      PRAGMA foreign_keys = OFF;
-      BEGIN;
-      ALTER TABLE tasks RENAME TO tasks_old;
-      CREATE TABLE tasks (
-        id              INTEGER PRIMARY KEY,
-        module_id       TEXT NOT NULL,
-        type            TEXT NOT NULL CHECK(type IN ('quiz','fill','order','code','project','scratch','blockly','htmlcss','java','cpp')),
-        title           TEXT NOT NULL,
-        description     TEXT,
-        difficulty      INTEGER DEFAULT 1,
-        explain         TEXT,
-        options         TEXT,
-        answer          TEXT,
-        items           TEXT,
-        expected_output TEXT,
-        starter         TEXT,
-        stdin           TEXT,
-        scratch_project_id TEXT,
-        FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
-      );
-      INSERT INTO tasks (${copyCols}) SELECT ${copyCols} FROM tasks_old;
-      DROP TABLE tasks_old;
-      COMMIT;
-      PRAGMA foreign_keys = ON;
-    `);
+    // ВАЖНО: db.exec() в better-sqlite3 не поддерживает PRAGMA и многострочные
+    // транзакции (BEGIN/COMMIT) — запускаем DDL-шаги отдельными вызовами.
+    db.pragma('foreign_keys = OFF');
+    const tasksOldExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks_old'").get();
+    if (tasksOldExists) db.exec(`DROP TABLE tasks_old`);
+    db.exec(`ALTER TABLE tasks RENAME TO tasks_old`);
+    db.exec(`CREATE TABLE tasks (
+      id              INTEGER PRIMARY KEY,
+      module_id       TEXT NOT NULL,
+      type            TEXT NOT NULL CHECK(type IN ('quiz','fill','order','code','project','scratch','blockly','htmlcss','java','cpp')),
+      title           TEXT NOT NULL,
+      description     TEXT,
+      difficulty      INTEGER DEFAULT 1,
+      explain         TEXT,
+      options         TEXT,
+      answer          TEXT,
+      items           TEXT,
+      expected_output TEXT,
+      starter         TEXT,
+      stdin           TEXT,
+      scratch_project_id TEXT,
+      FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+    )`);
+    db.exec(`INSERT INTO tasks (${copyCols}) SELECT ${copyCols} FROM tasks_old`);
+    db.exec(`DROP TABLE tasks_old`);
+    db.pragma('foreign_keys = ON');
     console.log('[db] Миграция tasks: CHECK расширен (java, cpp), добавлены stdin, scratch_project_id.');
   }
 } catch (e) {
@@ -201,33 +201,32 @@ try {
     const wantCols = ['id','login','password_hash','name','role','age','group_id',
                       'languages','teacher_id','avatar_url','created_at'];
     const copyCols = wantCols.filter(c => oldCols.includes(c)).join(',');
-    // better-sqlite3: PRAGMA нельзя смешивать с BEGIN/COMMIT в db.exec.
-    // Используем db.pragma() + db.transaction() для корректной работы.
+    // ВАЖНО: db.exec() с DDL нельзя запускать внутри db.transaction() в better-sqlite3 —
+    // это создаёт транзакцию внутри транзакции и роняет миграцию с ошибкой, оставляя
+    // users_old без users. Запускаем DDL последовательно через отдельные db.exec() вне транзакции.
     db.pragma('foreign_keys = OFF');
-    db.transaction(() => {
-      // Удалить осиротевшую users_old если есть, чтобы RENAME не упал
-      const orphan = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users_old'").get();
-      if (orphan) db.exec(`DROP TABLE users_old`);
-      db.exec(`ALTER TABLE users RENAME TO users_old`);
-      db.exec(`CREATE TABLE users (
-        id            TEXT PRIMARY KEY,
-        login         TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        name          TEXT NOT NULL,
-        role          TEXT NOT NULL,
-        age           INTEGER DEFAULT 0,
-        group_id      INTEGER DEFAULT 0,
-        languages     TEXT DEFAULT '[]',
-        teacher_id    TEXT,
-        avatar_url    TEXT,
-        created_at    INTEGER NOT NULL,
-        FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL
-      )`);
-      db.exec(`INSERT INTO users (${copyCols}) SELECT ${copyCols} FROM users_old`);
-      db.exec(`DROP TABLE users_old`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_users_role    ON users(role)`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_users_teacher ON users(teacher_id)`);
-    })();
+    // Удалить осиротевшую users_old если есть (от предыдущего упавшего запуска)
+    const orphan = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users_old'").get();
+    if (orphan) db.exec(`DROP TABLE users_old`);
+    db.exec(`ALTER TABLE users RENAME TO users_old`);
+    db.exec(`CREATE TABLE users (
+      id            TEXT PRIMARY KEY,
+      login         TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      role          TEXT NOT NULL,
+      age           INTEGER DEFAULT 0,
+      group_id      INTEGER DEFAULT 0,
+      languages     TEXT DEFAULT '[]',
+      teacher_id    TEXT,
+      avatar_url    TEXT,
+      created_at    INTEGER NOT NULL,
+      FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL
+    )`);
+    db.exec(`INSERT INTO users (${copyCols}) SELECT ${copyCols} FROM users_old`);
+    db.exec(`DROP TABLE users_old`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_users_role    ON users(role)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_users_teacher ON users(teacher_id)`);
     db.pragma('foreign_keys = ON');
     console.log('[db] Миграция users: снят CHECK по role (доступны роли assistant, parent).');
   }

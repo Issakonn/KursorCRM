@@ -1197,9 +1197,18 @@ async function loadPerms() {
     upload_artifacts:'Загружать материалы занятий', write_feedback:'Писать обратную связь',
   };
   // Нормализуем _permKeys: массив объектов {key,label} или строк
-  const rawKeys = Array.isArray(window._permKeys) ? window._permKeys : [];
+  // Если _permKeys ещё не загружены (async renderPermissions не завершился),
+  // используем локальный словарь labels как запасной вариант.
+  const rawKeys = Array.isArray(window._permKeys) && window._permKeys.length > 0 ? window._permKeys : [];
   const normKeys = rawKeys.length
-    ? rawKeys.map(k => typeof k === 'object' && k !== null ? { key: String(k.key||''), lbl: String(k.label||k.key||'') } : { key: String(k), lbl: labels[k] || String(k) })
+    ? rawKeys.map(k => {
+        if (typeof k === 'object' && k !== null) {
+          const key = String(k.key || '');
+          const lbl = (k.label && typeof k.label === 'string') ? k.label : (labels[key] || key);
+          return { key, lbl };
+        }
+        return { key: String(k), lbl: labels[String(k)] || String(k) };
+      })
     : Object.keys(labels).map(k => ({ key: k, lbl: labels[k] }));
   box.innerHTML = `<div class="card" style="padding:16px;max-width:480px">
     ${normKeys.filter(n => n.key).map(({ key, lbl }) => `
