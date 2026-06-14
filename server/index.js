@@ -2,6 +2,12 @@
    KURSOR — Главный файл сервера
    ============================================================ */
 require('dotenv').config();
+
+// Одноразовая починка БД — запускается если RUN_DB_FIX=true в переменных Railway
+if (process.env.RUN_DB_FIX === 'true') {
+  try { require('../fix_db'); } catch (e) { console.error('[fix_db] Ошибка:', e.message); }
+}
+
 const path = require('path');
 const http = require('http');
 const express = require('express');

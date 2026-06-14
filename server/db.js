@@ -303,7 +303,7 @@ CREATE TABLE IF NOT EXISTS groups (
   name          TEXT NOT NULL,
   course_id     TEXT,
   branch_id     TEXT NOT NULL,
-  teacher_id    TEXT NOT NULL,
+  teacher_id    TEXT,
   assistant_id  TEXT,
   lesson_kind   TEXT NOT NULL DEFAULT 'main' CHECK(lesson_kind IN ('main','extra')),
   status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
@@ -477,5 +477,42 @@ try {
     console.log('[db] Миграция tariffs: добавлена колонка comment');
   }
 } catch {}
+
+/* Миграция groups: убираем NOT NULL с teacher_id (учитель необязателен при создании группы).
+   SQLite не поддерживает ALTER COLUMN — пересоздаём таблицу если нужно. */
+try {
+  const grpSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='groups'").get();
+  // Старая схема имела "teacher_id    TEXT NOT NULL" — определяем по тексту
+  if (grpSql && /teacher_id\s+TEXT\s+NOT\s+NULL/i.test(grpSql.sql)) {
+    console.log('[db] Миграция groups: снимаю NOT NULL с teacher_id...');
+    const oldCols = db.prepare("PRAGMA table_info(groups)").all().map(c => c.name);
+    const copyCols = oldCols.join(',');
+    db.pragma('foreign_keys = OFF');
+    const orphan = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='groups_old'").get();
+    if (orphan) db.exec('DROP TABLE groups_old');
+    db.exec('ALTER TABLE groups RENAME TO groups_old');
+    db.exec(`CREATE TABLE groups (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      course_id     TEXT,
+      branch_id     TEXT NOT NULL,
+      teacher_id    TEXT,
+      assistant_id  TEXT,
+      lesson_kind   TEXT NOT NULL DEFAULT 'main' CHECK(lesson_kind IN ('main','extra')),
+      status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
+      FOREIGN KEY (branch_id) REFERENCES branches(id),
+      FOREIGN KEY (teacher_id) REFERENCES users(id),
+      FOREIGN KEY (assistant_id) REFERENCES users(id)
+    )`);
+    db.exec(`INSERT INTO groups (${copyCols}) SELECT ${copyCols} FROM groups_old`);
+    db.exec('DROP TABLE groups_old');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_groups_branch  ON groups(branch_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_groups_teacher ON groups(teacher_id)');
+    db.pragma('foreign_keys = ON');
+    console.log('[db] Миграция groups завершена.');
+  }
+} catch (e) {
+  console.error('[db] Ошибка миграции groups:', e.message);
+}
 
 module.exports = db;
