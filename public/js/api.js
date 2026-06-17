@@ -208,6 +208,7 @@
   const parentAttendance = (sid) => API_.get('/api/parent/attendance/' + encodeURIComponent(sid));
   const parentFeedback   = (sid) => API_.get('/api/parent/feedback/' + encodeURIComponent(sid));
   const parentArtifacts  = (sid) => API_.get('/api/parent/artifacts/' + encodeURIComponent(sid));
+  const parentFeed       = (sid) => API_.get('/api/parent/feed/'      + encodeURIComponent(sid));
 
   /* ---------- Фаза 6: уведомления ---------- */
   const getNotifications  = () => API_.get('/api/notifications');
@@ -272,7 +273,7 @@
     // фаза 4
     getArtifacts, createArtifact, deleteArtifact,
     // фаза 5
-    parentChildren, parentProgress, parentAttendance, parentFeedback, parentArtifacts,
+    parentChildren, parentProgress, parentAttendance, parentFeedback, parentArtifacts, parentFeed,
     // фаза 6
     getNotifications, markNotifRead, markAllNotifRead, deleteNotif,
     // импорт/экспорт
