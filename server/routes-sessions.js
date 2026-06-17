@@ -258,4 +258,118 @@ router.delete('/homework/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+/* ============================================================
+   КАЛЕНДАРЬ /api/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD[&branch_id=]
+   Разворачивает недельное расписание групп в конкретные даты диапазона
+   и присоединяет уже проведённые занятия (lesson_sessions).
+   weekday: 0=Вс..6=Сб (как у JS Date.getDay()).
+   ============================================================ */
+
+// Безопасный разбор даты занятия: ms-число, числовая строка или ISO-строка.
+function _toDateServer(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return isNaN(v) ? null : new Date(v);
+  const s = String(v).trim();
+  const d = /^\d{8,}$/.test(s) ? new Date(Number(s)) : new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+// Локальная дата в формат YYYY-MM-DD
+function _ymd(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+router.get('/calendar', (req, res) => {
+  const { from, to, branch_id } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from и to обязательны (YYYY-MM-DD)' });
+  const fromD = _toDateServer(from), toD = _toDateServer(to);
+  if (!fromD || !toD) return res.status(400).json({ error: 'Некорректные from/to' });
+
+  // Группы, видимые пользователю
+  let groups = db.prepare(`
+    SELECT g.*, b.name AS branch_name, m.title AS course_title,
+           tu.name AS teacher_name, au.name AS assistant_name
+    FROM groups g
+    LEFT JOIN branches b ON b.id = g.branch_id
+    LEFT JOIN modules  m ON m.id = g.course_id
+    LEFT JOIN users   tu ON tu.id = g.teacher_id
+    LEFT JOIN users   au ON au.id = g.assistant_id
+    WHERE g.status = 'active'
+  `).all();
+  if (branch_id) groups = groups.filter(g => g.branch_id === branch_id);
+  if (req.user.role !== 'admin') {
+    groups = groups.filter(g => g.teacher_id === req.user.id || g.assistant_id === req.user.id);
+  }
+  if (!groups.length) return res.json([]);
+
+  const groupIds = groups.map(g => g.id);
+  const gById = Object.fromEntries(groups.map(g => [g.id, g]));
+  const ph = groupIds.map(() => '?').join(',');
+
+  const schedules = db.prepare(`SELECT * FROM group_schedule WHERE group_id IN (${ph})`).all(...groupIds);
+
+  // Все занятия этих групп; фильтруем по дате в JS (date хранится по-разному).
+  const sessionRows = db.prepare(`
+    SELECT ls.*,
+      (SELECT COUNT(*) FROM attendance a WHERE a.lesson_session_id = ls.id AND a.status IN ('present','late')) AS present_count
+    FROM lesson_sessions ls WHERE ls.group_id IN (${ph})
+  `).all(...groupIds);
+
+  // Карта занятий по ключу groupId|YYYY-MM-DD (массив — на случай нескольких в день)
+  const sessByKey = {};
+  for (const s of sessionRows) {
+    const d = _toDateServer(s.date);
+    if (!d) continue;
+    const key = s.group_id + '|' + _ymd(d);
+    (sessByKey[key] = sessByKey[key] || []).push(s);
+  }
+
+  const events = [];
+  const used = new Set(); // занятые занятия (по id), чтобы не дублировать
+  // Идём по дням диапазона
+  for (let d = new Date(fromD.getFullYear(), fromD.getMonth(), fromD.getDate());
+       d <= toD; d.setDate(d.getDate() + 1)) {
+    const ymd = _ymd(d), wd = d.getDay();
+    for (const sc of schedules) {
+      if (sc.weekday !== wd) continue;
+      const g = gById[sc.group_id];
+      if (!g) continue;
+      const key = sc.group_id + '|' + ymd;
+      const pool = sessByKey[key] || [];
+      const sess = pool.find(s => !used.has(s.id));
+      if (sess) used.add(sess.id);
+      events.push({
+        date: ymd, weekday: wd, startTime: sc.start_time, durationMin: sc.duration_min,
+        groupId: g.id, groupName: g.name, lessonKind: g.lesson_kind,
+        branchId: g.branch_id, branchName: g.branch_name || '',
+        courseTitle: g.course_title || '', teacherName: g.teacher_name || '',
+        assistantName: g.assistant_name || '',
+        sessionId: sess ? sess.id : null,
+        conducted: !!sess,
+        presentCount: sess ? (sess.present_count || 0) : 0,
+        topic: sess ? (sess.topic || '') : '',
+      });
+    }
+  }
+
+  // Внеплановые занятия (есть запись, но нет слота в расписании в этот день)
+  for (const s of sessionRows) {
+    if (used.has(s.id)) continue;
+    const d = _toDateServer(s.date);
+    if (!d || d < fromD || d > toD) continue;
+    const g = gById[s.group_id]; if (!g) continue;
+    events.push({
+      date: _ymd(d), weekday: d.getDay(), startTime: null, durationMin: 60,
+      groupId: g.id, groupName: g.name, lessonKind: g.lesson_kind,
+      branchId: g.branch_id, branchName: g.branch_name || '',
+      courseTitle: g.course_title || '', teacherName: g.teacher_name || '',
+      assistantName: g.assistant_name || '',
+      sessionId: s.id, conducted: true, adhoc: true,
+      presentCount: s.present_count || 0, topic: s.topic || '',
+    });
+  }
+
+  res.json(events);
+});
+
 module.exports = router;

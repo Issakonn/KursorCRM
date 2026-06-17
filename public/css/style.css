@@ -726,3 +726,59 @@ h1 { font-weight:800; } h2 { font-weight:700; }
 
 /* Бейдж количества рядом с пунктом меню */
 .nav-badge { margin-left:auto; background:#ef4444; color:#fff; border-radius:999px; font-size:10px; font-weight:800; padding:1px 7px; }
+
+/* ============================================================
+   Календарь занятий (недельный/дневной вид)
+   ============================================================ */
+.cal-toolbar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+.cal-toolbar .cal-nav { display:flex; gap:6px; }
+.cal-toolbar .cal-range { font-weight:800; font-size:18px; color:#0f172a; flex:1; text-align:center; min-width:180px; text-transform:capitalize; }
+.cal-toolbar .cal-right { display:flex; align-items:center; gap:10px; }
+.cal-branch { width:auto; min-width:150px; padding:8px 12px; }
+.cal-viewswitch { display:inline-flex; background:#eef2ff; border-radius:10px; padding:3px; }
+.cal-vbtn { border:none; background:transparent; padding:7px 16px; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer; color:var(--primary-dark); }
+.cal-vbtn.active { background:var(--primary); color:#fff; box-shadow:0 2px 8px rgba(99,102,241,.3); }
+.cal-loading { padding:30px; text-align:center; color:#64748b; }
+
+.cal-wrap { border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; background:#fff; box-shadow:var(--shadow); position:relative; }
+.cal-grid { display:grid; grid-template-columns:56px repeat(7, 1fr); }
+.cal-wrap.day .cal-grid { grid-template-columns:56px 1fr; }
+.cal-corner { background:#fff; border-bottom:1px solid var(--border); }
+.cal-colhdr { padding:10px 6px; text-align:center; border-left:1px solid var(--border); border-bottom:1px solid var(--border); background:#fafbff; }
+.cal-colhdr span { display:block; font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:.04em; }
+.cal-colhdr b { font-size:15px; color:#0f172a; }
+.cal-colhdr.today { background:#eef2ff; }
+.cal-colhdr.today b { color:var(--primary-dark); }
+
+.cal-scroll { max-height:calc(100vh - 240px); overflow-y:auto; }
+.cal-body-grid { position:relative; }
+.cal-timecol { position:relative; }
+.cal-hour { position:relative; border-bottom:1px solid #f1f5f9; }
+.cal-hour span { position:absolute; top:-8px; right:6px; font-size:11px; color:#94a3b8; background:#fff; padding:0 2px; }
+.cal-daycol { position:relative; border-left:1px solid var(--border); }
+.cal-daycol.today { background:rgba(99,102,241,.03); }
+.cal-daygrid { position:relative; }
+.cal-cellline { border-bottom:1px solid #f1f5f9; }
+
+.cal-block { position:absolute; box-sizing:border-box; border-radius:8px; padding:5px 8px; cursor:pointer;
+  overflow:hidden; font-size:12px; line-height:1.25; border:1px solid transparent;
+  transition:transform .08s, box-shadow .12s; }
+.cal-block:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(15,23,42,.16); z-index:5; }
+.cal-block .cal-b-time { font-size:10px; opacity:.85; }
+.cal-block .cal-b-title { font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cal-block .cal-b-sub { font-size:10px; opacity:.8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cal-block .cal-b-status { font-size:10px; margin-top:2px; font-weight:700; }
+/* проведённое — зелёное; запланированное — индиго-контур */
+.cal-block.conducted { background:#ecfdf5; border-color:#a7f3d0; color:#065f46; border-left:4px solid #10b981; }
+.cal-block.planned { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; border-left:4px solid var(--primary); }
+.cal-block.planned .cal-b-status { color:var(--primary-dark); }
+/* доп. занятие — янтарный акцент слева */
+.cal-block.kind-extra.planned { border-left-color:#f59e0b; }
+.cal-block.kind-extra.conducted { border-left-color:#f59e0b; }
+
+.cal-empty { padding:26px; text-align:center; color:#64748b; }
+@media (max-width:760px){
+  .cal-grid { grid-template-columns:42px repeat(7,minmax(90px,1fr)); }
+  .cal-scroll { overflow-x:auto; }
+  .cal-toolbar .cal-range { font-size:15px; }
+}

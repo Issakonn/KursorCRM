@@ -58,6 +58,7 @@ const NAV_ICONS = {
   homework:      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4a2 2 0 0 1 2-2h5l5 5v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z"/><path d="M7 11h6M7 14h4"/></svg>`,
   users:         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="6" r="3"/><path d="M3 18c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>`,
   permissions:   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2l7 3v5c0 4-3 7-7 8C3 17 0 14 0 10V5l7-3z" transform="translate(1,1) scale(0.9)"/><path d="M7 10l2 2 4-4"/></svg>`,
+  calendar:      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="14" rx="2"/><path d="M3 8h14M7 2v3M13 2v3"/></svg>`,
 };
 function navIcon(key) {
   const svg = NAV_ICONS[key] || NAV_ICONS.tasks;
@@ -81,6 +82,7 @@ const NAV_GROUPS = [
     { tab:'clients', i18n:'admin.clients', iconKey:'clients', adminOnly:true },
   ]},
   { id:'journal', titleKey:'admin.grp_journal', items:[
+    { tab:'calendar', i18n:'admin.calendar', iconKey:'calendar' },
     { tab:'groups', i18n:'admin.groups', iconKey:'groups' },
     { tab:'sessions', i18n:'admin.sessions', iconKey:'sessions' },
     { tab:'homework', i18n:'admin.homework', iconKey:'homework' },
@@ -164,6 +166,7 @@ const BASE_TABS = ['dashboard','users','modules','tasks','materials','access','p
 
 const TAB_RENDERERS = {
   dashboard: () => renderDashboard(),
+  calendar: () => renderCalendar(),
   users: () => renderUsers(),
   modules: () => renderModules(),
   tasks: () => renderTasks(),
@@ -1260,6 +1263,167 @@ async function savePerms(tid) {
   const data = {};
   document.querySelectorAll('.pm_check').forEach(c => data[c.dataset.key] = c.checked);
   try { await API.setPermissions(tid, data); showToast(I18N.t('common.saved'),'success'); } catch (e) { alert(e.message); }
+}
+
+// ---------- Календарь занятий (недельный/дневной вид) ----------
+const CAL = { start: 8, end: 22, hourPx: 56 }; // окно дня 08:00–22:00
+let _cal = { ref: null, view: 'week', branchId: '', branches: [], events: [] };
+
+function _ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _mondayOf(d){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const off=(x.getDay()+6)%7; x.setDate(x.getDate()-off); return x; }
+function _addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function _minsOf(hhmm){ const [h,m]=String(hhmm||'0:0').split(':').map(Number); return (h||0)*60+(m||0); }
+function _locale(){ return I18N.lang==='kk' ? 'kk-KZ' : 'ru-RU'; }
+
+async function renderCalendar() {
+  if (!_cal.ref) _cal.ref = new Date();
+  try { if (!_cal.branches.length) _cal.branches = await API.getBranches(); } catch { _cal.branches = []; }
+
+  const isDay = _cal.view === 'day';
+  const days = isDay
+    ? [new Date(_cal.ref.getFullYear(), _cal.ref.getMonth(), _cal.ref.getDate())]
+    : Array.from({length:7}, (_,i)=>_addDays(_mondayOf(_cal.ref), i));
+  const from = _ymd(days[0]), to = _ymd(days[days.length-1]);
+
+  // Заголовок диапазона
+  const rangeLabel = isDay
+    ? days[0].toLocaleDateString(_locale(), { day:'numeric', month:'long', year:'numeric', weekday:'long' })
+    : `${days[0].toLocaleDateString(_locale(),{day:'numeric',month:'long'})} – ${days[6].toLocaleDateString(_locale(),{day:'numeric',month:'long',year:'numeric'})}`;
+
+  tabEl().innerHTML = `
+    <div class="cal-toolbar">
+      <div class="cal-nav">
+        <button class="btn btn-ghost btn-sm" onclick="calShift(-1)">‹</button>
+        <button class="btn btn-ghost btn-sm" onclick="calToday()" data-i18n="cal.today">Сегодня</button>
+        <button class="btn btn-ghost btn-sm" onclick="calShift(1)">›</button>
+      </div>
+      <div class="cal-range">${escapeHtml(rangeLabel)}</div>
+      <div class="cal-right">
+        <select class="form-input cal-branch" onchange="calSetBranch(this.value)">
+          <option value="">${I18N.t('cal.all_branches')}</option>
+          ${_cal.branches.map(b=>`<option value="${b.id}" ${_cal.branchId===b.id?'selected':''}>${escapeHtml(b.name)}</option>`).join('')}
+        </select>
+        <div class="cal-viewswitch">
+          <button class="cal-vbtn ${_cal.view==='week'?'active':''}" onclick="calSetView('week')" data-i18n="cal.week">Неделя</button>
+          <button class="cal-vbtn ${_cal.view==='day'?'active':''}" onclick="calSetView('day')" data-i18n="cal.day">День</button>
+        </div>
+      </div>
+    </div>
+    <div id="calBody" class="cal-loading">${I18N.t('common.loading')}</div>`;
+  I18N.applyI18n(tabEl());
+
+  let events = [];
+  try {
+    events = await API.getCalendar(`from=${from}&to=${to}` + (_cal.branchId ? `&branch_id=${encodeURIComponent(_cal.branchId)}` : ''));
+  } catch (e) {
+    document.getElementById('calBody').innerHTML = `<div style="color:#ef4444;padding:20px">${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  _cal.events = events;
+  document.getElementById('calBody').outerHTML = calGridHtml(days, events, isDay);
+  I18N.applyI18n(tabEl());
+}
+
+function calGridHtml(days, events, isDay) {
+  const hours = [];
+  for (let h = CAL.start; h <= CAL.end; h++) hours.push(h);
+  const gridH = (CAL.end - CAL.start) * CAL.hourPx;
+  const todayYmd = _ymd(new Date());
+
+  // Колонка с часами
+  const timeCol = `<div class="cal-timecol" style="height:${gridH}px">
+    ${hours.map(h=>`<div class="cal-hour" style="height:${CAL.hourPx}px"><span>${String(h).padStart(2,'0')}:00</span></div>`).join('')}
+  </div>`;
+
+  const byDay = {};
+  for (const e of events) (byDay[e.date] = byDay[e.date] || []).push(e);
+
+  const empty = events.length ? '' : `<div class="cal-empty">${I18N.t('cal.empty')}</div>`;
+  return `<div id="calBody" class="cal-wrap ${isDay?'day':''}">
+    <div class="cal-grid">
+      <div class="cal-corner"></div>
+      ${days.map(d=>{const y=_ymd(d);return `<div class="cal-colhdr ${y===todayYmd?'today':''}">
+        <span>${d.toLocaleDateString(_locale(),{weekday:'short'})}</span>
+        <b>${d.getDate()}.${String(d.getMonth()+1).padStart(2,'0')}</b></div>`;}).join('')}
+    </div>
+    <div class="cal-scroll">
+      <div class="cal-grid cal-body-grid">
+        ${timeCol}
+        ${days.map(d=>{
+          const ymd=_ymd(d);
+          const list=(byDay[ymd]||[]).slice().sort((a,b)=>_minsOf(a.startTime)-_minsOf(b.startTime));
+          const lanes=_packLanes(list);
+          return `<div class="cal-daycol ${ymd===todayYmd?'today':''}">
+            <div class="cal-daygrid" style="height:${gridH}px">
+              ${hours.map(()=>`<div class="cal-cellline" style="height:${CAL.hourPx}px"></div>`).join('')}
+              ${list.map((e,i)=>calBlockHtml(e,lanes[i])).join('')}
+            </div></div>`;
+        }).join('')}
+      </div>
+    </div>
+    ${empty}</div>`;
+}
+
+// Простое размещение по «полосам» при пересечении по времени
+function _packLanes(list) {
+  const lanes = []; // массив времён окончания в каждой полосе
+  const out = [];
+  for (const e of list) {
+    const start = _minsOf(e.startTime), end = start + (e.durationMin || 60);
+    let lane = lanes.findIndex(endAt => start >= endAt);
+    if (lane === -1) { lane = lanes.length; lanes.push(end); } else lanes[lane] = end;
+    out.push({ lane });
+  }
+  const total = Math.max(1, lanes.length);
+  return out.map(o => ({ lane: o.lane, total }));
+}
+
+function calBlockHtml(e, lane) {
+  const start = e.startTime != null ? _minsOf(e.startTime) : CAL.start*60;
+  const top = Math.max(0, (start - CAL.start*60) / 60 * CAL.hourPx);
+  const h = Math.max(28, (e.durationMin || 60) / 60 * CAL.hourPx - 3);
+  const widthPct = 100 / (lane.total || 1);
+  const leftPct = widthPct * (lane.lane || 0);
+  const endMin = start + (e.durationMin || 60);
+  const timeStr = e.startTime != null
+    ? `${e.startTime}–${String(Math.floor(endMin/60)).padStart(2,'0')}:${String(endMin%60).padStart(2,'0')}`
+    : '';
+  const kind = e.lessonKind === 'extra' ? I18N.t('cal.kind_extra') : I18N.t('cal.kind_main');
+  const cls = e.conducted ? 'conducted' : 'planned';
+  const status = e.conducted
+    ? `✓ ${e.presentCount} ${I18N.t('cal.present')}`
+    : I18N.t('cal.conduct');
+  const teachers = [e.teacherName, e.assistantName].filter(Boolean).join(', ');
+  const onclick = e.conducted
+    ? `openAttendance('${e.sessionId}','${e.groupId}')`
+    : `conductSlot('${e.groupId}','${e.date}')`;
+  return `<div class="cal-block ${cls} kind-${e.lessonKind}" onclick="${onclick}"
+      style="top:${top}px;height:${h}px;left:calc(${leftPct}% + 2px);width:calc(${widthPct}% - 4px)"
+      title="${escapeHtml(e.groupName)} ${timeStr}">
+    <div class="cal-b-time">${timeStr} · ${kind}</div>
+    <div class="cal-b-title">${escapeHtml(e.groupName)}</div>
+    ${teachers ? `<div class="cal-b-sub">${escapeHtml(teachers)}</div>` : ''}
+    <div class="cal-b-status">${status}</div>
+  </div>`;
+}
+
+function calShift(dir) {
+  _cal.ref = _addDays(_cal.ref || new Date(), (_cal.view==='day'?1:7) * dir);
+  renderCalendar();
+}
+function calToday() { _cal.ref = new Date(); renderCalendar(); }
+function calSetView(v) { _cal.view = v; renderCalendar(); }
+function calSetBranch(b) { _cal.branchId = b; renderCalendar(); }
+
+// Клик по пустому слоту: создаём занятие на эту дату и открываем проведение
+async function conductSlot(groupId, ymd) {
+  try {
+    const [y,m,d] = ymd.split('-').map(Number);
+    const ms = new Date(y, m-1, d, 0, 0, 0, 0).getTime();
+    const s = await API.createSession({ groupId, date: ms, topic: '' });
+    await renderCalendar();
+    openAttendance(s.id, groupId);
+  } catch (e) { alert(e.message); }
 }
 
 // ---------- Журнал занятий ----------

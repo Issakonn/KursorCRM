@@ -105,6 +105,14 @@
 
       'notif.empty': 'Новых уведомлений нет', 'notif.mark_all': 'Прочитать все',
 
+      'admin.calendar': 'Календарь',
+      'cal.title': 'Календарь занятий', 'cal.week': 'Неделя', 'cal.month': 'Месяц', 'cal.day': 'День',
+      'cal.today': 'Сегодня', 'cal.all_branches': 'Все филиалы',
+      'cal.conduct': 'Провести', 'cal.conducted': 'Проведено', 'cal.open': 'Открыть занятие',
+      'cal.empty': 'На этой неделе занятий по расписанию нет',
+      'cal.kind_main': 'основное', 'cal.kind_extra': 'доп.',
+      'cal.students': 'уч.', 'cal.present': 'было',
+
       'admin.overview_title': 'Обзор платформы',
       'admin.greeting': 'Привет,',
       'admin.role_label': 'Роль:',
@@ -228,6 +236,14 @@
       'parent.video_expired': 'Бейне енді қолжетімді емес (сақтау мерзімі аяқталды)',
 
       'notif.empty': 'Жаңа хабарлама жоқ', 'notif.mark_all': 'Барлығын оқылды деп белгілеу',
+
+      'admin.calendar': 'Күнтізбе',
+      'cal.title': 'Сабақ күнтізбесі', 'cal.week': 'Апта', 'cal.month': 'Ай', 'cal.day': 'Күн',
+      'cal.today': 'Бүгін', 'cal.all_branches': 'Барлық филиалдар',
+      'cal.conduct': 'Өткізу', 'cal.conducted': 'Өткізілді', 'cal.open': 'Сабақты ашу',
+      'cal.empty': 'Бұл аптада кесте бойынша сабақ жоқ',
+      'cal.kind_main': 'негізгі', 'cal.kind_extra': 'қосымша',
+      'cal.students': 'оқ.', 'cal.present': 'болды',
 
       'admin.overview_title': 'Платформаға шолу',
       'admin.greeting': 'Сәлем,',

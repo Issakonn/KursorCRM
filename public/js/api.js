@@ -186,6 +186,7 @@
 
   /* ---------- Фаза 3: занятия, посещаемость, ДЗ ---------- */
   const getSessions      = (q) => API_.get('/api/lesson-sessions' + (q ? ('?' + q) : ''));
+  const getCalendar      = (q) => API_.get('/api/calendar' + (q ? ('?' + q) : ''));
   const createSession    = (data) => API_.post('/api/lesson-sessions', data);
   const deleteSession    = (id) => API_.del('/api/lesson-sessions/' + encodeURIComponent(id));
   const getSessionAttendance = (id) => API_.get('/api/lesson-sessions/' + encodeURIComponent(id) + '/attendance');
@@ -259,7 +260,7 @@
     createCrmStudent, updateCrmStudent, deleteCrmStudent,
     getPermissionKeys, getPermissions, setPermissions,
     // фаза 3
-    getSessions, createSession, deleteSession, getSessionAttendance, saveAttendance,
+    getSessions, getCalendar, createSession, deleteSession, getSessionAttendance, saveAttendance,
     getHomework, getMyHomework, createHomework, deleteHomework,
     // фаза 4
     getArtifacts, createArtifact, deleteArtifact,
