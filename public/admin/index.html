@@ -286,9 +286,23 @@ function renderUsers() {
   `;
 }
 
-function openUserForm(id) {
+async function openUserForm(id) {
   const u = id ? cache.users.find(x => x.id === id) : { role:'student', age:10, group:2, languages:[] };
   const langs = Object.entries(KURSOR_DB.LANGS);
+
+  // Загружаем текущие привязки родитель↔дети
+  let parentChildIds = [];
+  let studentParentIds = [];
+  if (id && u) {
+    try {
+      if (u.role === 'parent') parentChildIds = await API.getParentChildren(id);
+      if (u.role === 'student') studentParentIds = await API.getStudentParents(id);
+    } catch(e) { /* игнорируем */ }
+  }
+
+  const students = cache.users.filter(x => x.role === 'student');
+  const parents  = cache.users.filter(x => x.role === 'parent');
+
   document.getElementById('modalContent').innerHTML = `
     <h2>${id ? 'Редактировать' : 'Создать'} пользователя</h2>
     <div class="form-group"><label>Имя</label><input class="form-input" id="f_name" value="${escapeHtml(u.name||'')}" placeholder="Алия Серикова"></div>
@@ -329,6 +343,33 @@ function openUserForm(id) {
           `<option value="${t.id}" ${u.teacher_id===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}
       </select>
     </div>
+    <div id="parentFields" style="display:none">
+      <label style="font-weight:600;display:block;margin-bottom:6px">Дети (ученики)</label>
+      <div style="max-height:200px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px">
+        ${students.length === 0
+          ? '<p style="color:#94a3b8;font-size:14px">Нет учеников в системе</p>'
+          : students.map(s => `
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+              <input type="checkbox" class="f_child" value="${s.id}" ${parentChildIds.includes(s.id)?'checked':''}>
+              <span>${escapeHtml(s.name)}</span>
+              <span style="color:#94a3b8;font-size:12px">${s.login}</span>
+            </label>`).join('')}
+      </div>
+    </div>
+    <div id="studentParentFields" style="display:none">
+      <label style="font-weight:600;display:block;margin-bottom:6px">Родители</label>
+      <div style="max-height:160px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px">
+        ${parents.length === 0
+          ? '<p style="color:#94a3b8;font-size:14px">Нет родителей в системе</p>'
+          : parents.map(p => `
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+              <input type="checkbox" class="f_parent_link" value="${p.id}" ${studentParentIds.includes(p.id)?'checked':''}>
+              <span>${escapeHtml(p.name)}</span>
+              <span style="color:#94a3b8;font-size:12px">${p.login}</span>
+            </label>`).join('')}
+      </div>
+      <p style="color:#64748b;font-size:12px;margin-top:6px">Отмеченные родители будут видеть прогресс этого ученика</p>
+    </div>
     <div id="modalErr" style="color:#ef4444;font-weight:700;margin-top:8px;min-height:18px"></div>
     <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
       <button class="btn btn-outline" onclick="closeModal()">Отмена</button>
@@ -357,8 +398,31 @@ async function saveUser(id) {
   if (!data.name || !data.login) { err.textContent = 'Введи имя и логин'; return; }
   if (!id && !pwd) { err.textContent = 'Пароль обязателен при создании'; return; }
   try {
+    let savedId = id;
     if (id) await API.updateUser(id, data);
-    else await API.createUser(data);
+    else { const created = await API.createUser(data); savedId = created.id; }
+
+    // Сохраняем привязки родитель ↔ дети
+    if (data.role === 'parent' && savedId) {
+      const childIds = Array.from(document.querySelectorAll('.f_child:checked')).map(c => c.value);
+      await API.setParentChildren(savedId, childIds);
+    }
+    if (data.role === 'student' && savedId) {
+      // Для ученика: обновляем каждого отмеченного/снятого родителя
+      const checkedParents = Array.from(document.querySelectorAll('.f_parent_link:checked')).map(c => c.value);
+      const uncheckedParents = Array.from(document.querySelectorAll('.f_parent_link:not(:checked)')).map(c => c.value);
+      // Добавляем этого ученика к отмеченным родителям
+      for (const pid of checkedParents) {
+        const existing = await API.getParentChildren(pid);
+        if (!existing.includes(savedId)) await API.setParentChildren(pid, [...existing, savedId]);
+      }
+      // Убираем этого ученика у снятых родителей
+      for (const pid of uncheckedParents) {
+        const existing = await API.getParentChildren(pid);
+        if (existing.includes(savedId)) await API.setParentChildren(pid, existing.filter(x => x !== savedId));
+      }
+    }
+
     closeModal();
     await render();
     showToast('<img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="width:22px;height:22px"> Сохранено','success');
@@ -373,8 +437,12 @@ async function removeUser(id) {
 
 function toggleStudentFields() {
   const role = document.getElementById('f_role').value;
-  const sf = document.getElementById('studentFields');
-  if (sf) sf.style.display = (role === 'student') ? '' : 'none';
+  const sf  = document.getElementById('studentFields');
+  const pf  = document.getElementById('parentFields');
+  const spf = document.getElementById('studentParentFields');
+  if (sf)  sf.style.display  = (role === 'student') ? '' : 'none';
+  if (pf)  pf.style.display  = (role === 'parent')  ? '' : 'none';
+  if (spf) spf.style.display = (role === 'student') ? '' : 'none';
 }
 
 function renderModules() {

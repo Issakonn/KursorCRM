@@ -235,10 +235,17 @@
   const importData = (dataset, payload, dryRun) =>
     API_.post('/api/import/' + dataset + (dryRun ? '?dryRun=true' : ''), payload);
 
+
+  // Привязка родитель ↔ дети
+  const getParentChildren = (parentId) => API_.get('/api/users/' + encodeURIComponent(parentId) + '/children');
+  const setParentChildren = (parentId, children) => API_.put('/api/users/' + encodeURIComponent(parentId) + '/children', { children });
+  const getStudentParents = (studentId) => API_.get('/api/users/' + encodeURIComponent(studentId) + '/parents');
+
   window.API = {
     login, logout, getToken, getCurrentUser, refreshCurrentUser, requireAuth,
     getModules, getTasks, getUsers, getStudents,
     createUser, updateUser, deleteUser,
+    getParentChildren, setParentChildren, getStudentParents,
     createModule, updateModule, deleteModule,
     createTask, updateTask, deleteTask,
     getMyProgress, getAllProgress, getUserProgress,

@@ -200,4 +200,45 @@ router.delete('/:id/avatar', (req, res) => {
   res.json({ ok: true, user: rowToUser(db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id)) });
 });
 
+
+// -------- Привязка родитель ↔ дети --------
+
+// GET /api/users/:id/children — список детей родителя
+router.get('/:id/children', requireRole('admin'), (req, res) => {
+  const rows = db.prepare(
+    'SELECT student_id FROM parent_children WHERE parent_id = ?'
+  ).all(req.params.id);
+  res.json(rows.map(r => r.student_id));
+});
+
+// PUT /api/users/:id/children — установить список детей (заменяет всё)
+router.put('/:id/children', requireRole('admin'), (req, res) => {
+  const parentId = req.params.id;
+  const parent = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'parent'").get(parentId);
+  if (!parent) return res.status(400).json({ error: 'Пользователь не является родителем' });
+
+  const { children } = req.body; // массив student_id
+  if (!Array.isArray(children)) return res.status(400).json({ error: 'children должен быть массивом' });
+
+  const upsert = db.transaction(() => {
+    db.prepare('DELETE FROM parent_children WHERE parent_id = ?').run(parentId);
+    for (const sid of children) {
+      const student = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'student'").get(sid);
+      if (student) {
+        db.prepare('INSERT OR IGNORE INTO parent_children (parent_id, student_id) VALUES (?, ?)').run(parentId, sid);
+      }
+    }
+  });
+  upsert();
+  res.json({ ok: true });
+});
+
+// GET /api/users/:id/parents — список родителей ученика
+router.get('/:id/parents', requireRole('admin'), (req, res) => {
+  const rows = db.prepare(
+    'SELECT parent_id FROM parent_children WHERE student_id = ?'
+  ).all(req.params.id);
+  res.json(rows.map(r => r.parent_id));
+});
+
 module.exports = router;
