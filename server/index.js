@@ -29,6 +29,8 @@ app.use(cors());
 // как доходил до проверки 50 МБ в routes-artifacts.js. Навешиваем большой лимит ТОЛЬКО
 // на /api/session-artifacts, чтобы не открывать остальные ручки для нежелательных payload-ов.
 app.use('/api/session-artifacts', express.json({ limit: '70mb' }));
+// Материалы курса теперь принимают полноценные файлы (PDF/PPTX/XLSX/DOCX) как base64 dataUrl.
+app.use('/api/materials', express.json({ limit: '70mb' }));
 app.use(express.json({ limit: '4mb' })); // 4mb: вмещает base64-аватарку до 2 МБ
 
 // Логирование API-запросов

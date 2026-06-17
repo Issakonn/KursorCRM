@@ -148,7 +148,7 @@ function render(tasks, modules, progress) {
             ${lang ? `<span class="lang-badge ${lang.class}"><img src="${lang.icon}" style="width:14px;height:14px;object-fit:contain;vertical-align:-2px"></span>` : ''}
             <div style="flex:1">
               <b>${escapeHtml(r.task.title)}</b>
-              <div style="font-size:12px;color:#64748b">${new Date(r.completedAt).toLocaleDateString('ru-RU')} · +${r.points} очков</div>
+              <div style="font-size:12px;color:#64748b">${fmtDate(r.completedAt, I18N.lang==='kk'?'kk-KZ':'ru-RU')} · +${r.points} очков</div>
             </div>
             <a href="/pages/task.html?id=${r.task.id}" class="btn btn-ghost">→</a>
           </div>`;
@@ -170,7 +170,7 @@ async function loadProfileFeedback() {
     if (!list.length) { box.innerHTML = `<span style="color:#64748b">${I18N.t('fb.empty')}</span>`; return; }
     box.style.textAlign = 'left';
     box.innerHTML = list.map(f => `<div style="border-bottom:1px solid #eef2f7;padding:10px 0">
-      <div style="font-size:12px;color:#64748b">${escapeHtml(f.teacherName||'')} · ${new Date(f.createdAt).toLocaleDateString('ru-RU')}</div>
+      <div style="font-size:12px;color:#64748b">${escapeHtml(f.teacherName||'')} · ${fmtDate(f.createdAt, I18N.lang==='kk'?'kk-KZ':'ru-RU')}</div>
       <div>${escapeHtml(f.text)}</div></div>`).join('');
   } catch (e) {
     box.innerHTML = `<span style="color:#94a3b8">${escapeHtml(e.message)}</span>`;

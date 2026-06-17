@@ -137,7 +137,7 @@ function showStudent(id) {
             <div style="background:#f8fafc;padding:12px;border-radius:8px;margin-top:10px">
               <b>${escapeHtml(t.title)}</b>
               <div style="margin-top:6px;white-space:pre-wrap;font-size:14px">${escapeHtml(pr.submission)}</div>
-              <div style="margin-top:8px;font-size:12px;color:#64748b">Сдано: ${new Date(pr.completedAt).toLocaleString('ru-RU')}</div>
+              <div style="margin-top:8px;font-size:12px;color:#64748b">Сдано: ${fmtDateTime(pr.completedAt, I18N.lang==='kk'?'kk-KZ':'ru-RU')}</div>
             </div>`;
         }).join('')}
       ` : ''}
@@ -225,7 +225,7 @@ async function loadTeacherExtras() {
         <td>${(m.content && /^https?:\/\//i.test(m.content)) ? `<a href="${escapeHtml(m.content)}" target="_blank">${I18N.t('common.open')}</a>` : '—'}</td>
       </tr>`).join('')}</tbody></table></div>`
       : `<div class="card" style="padding:20px;text-align:center;color:#64748b">${I18N.t('common.none')}</div>`}
-    ${myAccess.length ? `<p style="font-size:13px;color:#64748b;margin-top:8px">${I18N.t('mat.expires')}: ${myAccess.map(a => moduleTitleT(a.courseId)+' — '+new Date(a.expiresAt).toLocaleDateString()).join('; ')}</p>` : ''}
+    ${myAccess.length ? `<p style="font-size:13px;color:#64748b;margin-top:8px">${I18N.t('mat.expires')}: ${myAccess.map(a => moduleTitleT(a.courseId)+' — '+fmtDate(a.expiresAt)).join('; ')}</p>` : ''}
 
     <h2 class="section-title" style="margin-top:32px">${I18N.t('fb.title')}</h2>
     <div class="card" style="padding:16px">

@@ -94,7 +94,7 @@ async function toggleNotifPanel() {
     const list = items.map(n => `
       <a class="notif-item ${n.read ? '' : 'unread'}" href="${n.link || '#'}" onclick="markNotif('${n.id}')">
         <div class="notif-text">${escapeHtml(n.text)}</div>
-        <div class="notif-time">${new Date(n.createdAt).toLocaleString()}</div>
+        <div class="notif-time">${fmtDateTime(n.createdAt)}</div>
       </a>`).join('');
     panel.innerHTML = head + `<div class="notif-list">${list}</div>`;
   } catch (e) {
@@ -147,6 +147,33 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+/* ============================================================
+   Дата: единый безопасный парсер.
+   Корень бага «Invalid Date»: даты пишутся как getTime() (число),
+   но колонка date — TEXT, и SQLite хранит её как строку "1781568000000".
+   new Date("1781568000000") → Invalid Date (числовая строка не парсится
+   как timestamp). Этот парсер принимает и число (мс), и числовую строку,
+   и ISO-строку ("2026-06-16"), и возвращает Date либо null.
+   ============================================================ */
+function toDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  if (typeof v === 'number') return isNaN(v) ? null : new Date(v);
+  const s = String(v).trim();
+  if (!s) return null;
+  // Чисто числовая строка → это timestamp в миллисекундах
+  const d = /^\d{8,}$/.test(s) ? new Date(Number(s)) : new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function fmtDate(v, locale) {
+  const d = toDate(v);
+  return d ? d.toLocaleDateString(locale || undefined) : '—';
+}
+function fmtDateTime(v, locale) {
+  const d = toDate(v);
+  return d ? d.toLocaleString(locale || undefined) : '—';
+}
+
 function getQueryParam(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
@@ -157,6 +184,9 @@ window.logout = logout;
 window.showToast = showToast;
 window.fireConfetti = fireConfetti;
 window.escapeHtml = escapeHtml;
+window.toDate = toDate;
+window.fmtDate = fmtDate;
+window.fmtDateTime = fmtDateTime;
 window.getQueryParam = getQueryParam;
 window.toggleNotifPanel = toggleNotifPanel;
 window.loadNotifBadge = loadNotifBadge;

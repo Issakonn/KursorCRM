@@ -7,6 +7,38 @@ const db = require('./db');
 const { authRequired, requireRole } = require('./auth');
 const { genId } = require('./util');
 const { hasPermission } = require('./permissions');
+const storage = require('./storage');
+
+const MAT_MAX_BYTES = 50 * 1024 * 1024; // 50 МБ на файл материала
+// Разрешённые расширения для загружаемых файлов материалов
+const MAT_EXT = {
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/msword': 'doc',
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+  'text/plain': 'txt', 'application/zip': 'zip',
+};
+
+// Декодирует dataUrl и сохраняет файл материала. Возвращает публичный URL.
+function saveMaterialFile(dataUrl, matId, fileName) {
+  const m = /^data:([\w.+/-]+);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || '');
+  if (!m) throw { code: 400, msg: 'Ожидается dataUrl с base64-содержимым файла' };
+  let buf;
+  try { buf = Buffer.from(m[2], 'base64'); } catch { throw { code: 400, msg: 'Некорректный base64' }; }
+  if (!buf.length) throw { code: 400, msg: 'Пустой файл' };
+  if (buf.length > MAT_MAX_BYTES) throw { code: 413, msg: 'Файл больше 50 МБ' };
+  const mime = m[1];
+  // расширение: по mime, иначе по имени файла, иначе bin
+  let ext = MAT_EXT[mime];
+  if (!ext && fileName && /\.([a-z0-9]{1,8})$/i.test(fileName)) ext = fileName.split('.').pop().toLowerCase();
+  ext = (ext || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
+  const rel = `materials/${matId}.${ext}`;
+  return storage.saveFile(buf, rel);
+}
 
 const router = express.Router();
 router.use(authRequired);
@@ -67,7 +99,7 @@ router.get('/materials', (req, res) => {
 });
 
 router.post('/materials', (req, res) => {
-  const { courseId, type, title, content } = req.body || {};
+  const { courseId, type, title, content, dataUrl, fileName } = req.body || {};
   if (!['admin', 'teacher', 'assistant'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
@@ -83,10 +115,16 @@ router.post('/materials', (req, res) => {
   if (!course) return res.status(404).json({ error: 'Курс (модуль) не найден' });
 
   const id = genId('mat');
+  // Если передан файл (dataUrl) — сохраняем его и кладём публичный URL в content.
+  let finalContent = content || '';
+  if (dataUrl) {
+    try { finalContent = saveMaterialFile(dataUrl, id, fileName); }
+    catch (e) { return res.status(e.code || 400).json({ error: e.msg || 'Ошибка загрузки файла' }); }
+  }
   db.prepare(`
     INSERT INTO materials (id, course_id, type, title, content, created_by, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, courseId, type, String(title).trim(), content || '', req.user.id, Date.now());
+  `).run(id, courseId, type, String(title).trim(), finalContent, req.user.id, Date.now());
   res.status(201).json(rowToMaterial(db.prepare('SELECT * FROM materials WHERE id = ?').get(id)));
 });
 
@@ -97,11 +135,16 @@ router.put('/materials/:id', (req, res) => {
     if (!hasPermission(req.user, 'edit_materials')) return res.status(403).json({ error: 'Нет права редактировать материалы' });
     if (!teacherHasActiveAccess(req.user.id, cur.course_id)) return res.status(403).json({ error: 'Нет активного доступа к этому курсу' });
   }
-  const { type, title, content } = req.body || {};
+  const { type, title, content, dataUrl, fileName } = req.body || {};
+  let finalContent = content !== undefined ? content : cur.content;
+  if (dataUrl) {
+    try { finalContent = saveMaterialFile(dataUrl, req.params.id, fileName); }
+    catch (e) { return res.status(e.code || 400).json({ error: e.msg || 'Ошибка загрузки файла' }); }
+  }
   db.prepare(`UPDATE materials SET type=?, title=?, content=? WHERE id=?`).run(
     type && ['presentation', 'task', 'text', 'file'].includes(type) ? type : cur.type,
     title !== undefined ? String(title).trim() : cur.title,
-    content !== undefined ? content : cur.content,
+    finalContent,
     req.params.id
   );
   res.json(rowToMaterial(db.prepare('SELECT * FROM materials WHERE id = ?').get(req.params.id)));

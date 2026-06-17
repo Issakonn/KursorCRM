@@ -93,7 +93,7 @@ function render(tasks, modules, progress, homework) {
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
               <div>
                 <b>${escapeHtml(hw.moduleTitle || I18N.t('dash.homework'))}</b>
-                <div style="font-size:12px;color:#64748b">${hw.dueDate ? ('до ' + new Date(hw.dueDate).toLocaleDateString()) : ''}</div>
+                <div style="font-size:12px;color:#64748b">${hw.dueDate ? ('до ' + fmtDate(hw.dueDate)) : ''}</div>
               </div>
               ${hw.allDone
                 ? `<span class="badge badge-success"><img class="ic ic-16" src="https://cdn-icons-png.flaticon.com/512/190/190411.png" style="vertical-align:-3px"> ${I18N.t('dash.homework_done')}</span>`

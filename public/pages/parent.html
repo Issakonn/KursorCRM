@@ -86,7 +86,7 @@ async function loadChild(id) {
         ${attendance.records.length ? `<table class="table" style="box-shadow:none"><thead><tr>
           <th>${I18N.t('common.date')}</th><th>${I18N.t('session.topic')}</th><th>${I18N.t('common.status')}</th></tr></thead><tbody>
           ${attendance.records.map(r => `<tr>
-            <td>${r.date ? new Date(r.date).toLocaleDateString() : '—'}</td>
+            <td>${fmtDate(r.date)}</td>
             <td>${escapeHtml(r.topic || '—')}</td>
             <td>${attendBadge(r.status)}</td></tr>`).join('')}
           </tbody></table>` : `<div style="padding:20px;text-align:center;color:#64748b">${I18N.t('common.none')}</div>`}
@@ -98,7 +98,7 @@ async function loadChild(id) {
           ${artifacts.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eef2f7;padding-bottom:8px">
             <div>
               <b>${artifactIcon(a.type)} ${escapeHtml(a.title || artifactLabel(a.type))}</b>
-              <div style="font-size:12px;color:#64748b">${a.sessionDate ? new Date(a.sessionDate).toLocaleDateString() : ''} ${escapeHtml(a.topic || '')}</div>
+              <div style="font-size:12px;color:#64748b">${a.sessionDate ? fmtDate(a.sessionDate) : ''} ${escapeHtml(a.topic || '')}</div>
             </div>
             <div>${a.unavailable
               ? `<span style="color:#94a3b8;font-size:13px">${escapeHtml(a.unavailable)}</span>`
@@ -110,7 +110,7 @@ async function loadChild(id) {
       <h2 class="section-title" style="margin-top:28px">${I18N.t('parent.feedback')}</h2>
       <div class="card" style="padding:16px">
         ${feedback.length ? feedback.map(f => `<div style="border-bottom:1px solid #eef2f7;padding:10px 0">
-          <div style="font-size:12px;color:#64748b">${escapeHtml(f.teacherName || '')} · ${new Date(f.createdAt).toLocaleDateString()}</div>
+          <div style="font-size:12px;color:#64748b">${escapeHtml(f.teacherName || '')} · ${fmtDate(f.createdAt)}</div>
           <div>${escapeHtml(f.text)}</div></div>`).join('')
           : `<div style="text-align:center;color:#64748b">${I18N.t('fb.empty')}</div>`}
       </div>

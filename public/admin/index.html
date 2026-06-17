@@ -670,8 +670,18 @@ async function removeTask(id) {
    НОВЫЕ РАЗДЕЛЫ: материалы, доступ, CRM, права, журнал, ДЗ, уведомления
    ============================================================ */
 const tabEl = () => document.getElementById('tab');
-const fmtDate = (ms) => ms ? new Date(ms).toLocaleDateString() : '—';
-const fmtDateTime = (ms) => ms ? new Date(ms).toLocaleString() : '—';
+// Безопасный парсер дат: принимает число (мс), числовую строку ("1781568000000")
+// и ISO-строку ("2026-06-16"). Раньше new Date("1781568000000") давало Invalid Date.
+function _toDate(v){
+  if(v==null||v==='')return null;
+  if(v instanceof Date)return isNaN(v.getTime())?null:v;
+  if(typeof v==='number')return isNaN(v)?null:new Date(v);
+  const s=String(v).trim(); if(!s)return null;
+  const d=/^\d{8,}$/.test(s)?new Date(Number(s)):new Date(s);
+  return isNaN(d.getTime())?null:d;
+}
+const fmtDate = (v) => { const d=_toDate(v); return d?d.toLocaleDateString():'—'; };
+const fmtDateTime = (v) => { const d=_toDate(v); return d?d.toLocaleString():'—'; };
 const _byId = (arr, id, f='id') => arr.find(x => x[f] === id);
 function moduleTitle(id) { const m = _byId(cache.modules, id); return m ? m.title : id; }
 function userName(id) { const u = _byId(cache.users, id); return u ? u.name : (id || '—'); }
@@ -744,18 +754,24 @@ async function renderMaterials() {
 function isUrl(s) { return typeof s === 'string' && /^https?:\/\//i.test(s.trim()); }
 function openMaterialForm(id) {
   const m = id ? _byId(window._mats||[], id) : { title:'', courseId: cache.modules[0]?.id||'', type:'presentation', content:'' };
-  const TYPES = [['presentation','Презентация'],['task','Задание'],['text','Текст'],['file','Файл/ссылка']];
+  const TYPES = [['presentation',I18N.t('mat.t_presentation')],['task',I18N.t('mat.t_task')],['text',I18N.t('mat.t_text')],['file',I18N.t('mat.t_file')]];
   document.getElementById('modalContent').innerHTML = `
-    <h2>${id ? 'Редактировать' : 'Создать'} материал</h2>
-    <div class="form-group"><label>Название</label><input class="form-input" id="mt_title" value="${escapeHtml(m.title||'')}"></div>
-    <div class="form-group"><label>Курс</label><select class="form-input" id="mt_course">
+    <h2>${id ? I18N.t('mat.edit') : I18N.t('mat.create')}</h2>
+    <div class="form-group"><label>${I18N.t('mat.name')}</label><input class="form-input" id="mt_title" value="${escapeHtml(m.title||'')}"></div>
+    <div class="form-group"><label>${I18N.t('mat.course')}</label><select class="form-input" id="mt_course">
       ${cache.modules.map(mm => `<option value="${mm.id}" ${m.courseId===mm.id?'selected':''}>${escapeHtml(mm.title)}</option>`).join('')}
     </select></div>
-    <div class="form-group"><label>Тип</label><select class="form-input" id="mt_type">
+    <div class="form-group"><label>${I18N.t('mat.type')}</label><select class="form-input" id="mt_type">
       ${TYPES.map(([v,l])=>`<option value="${v}" ${m.type===v?'selected':''}>${l}</option>`).join('')}
     </select></div>
-    <div class="form-group"><label>Ссылка (URL) или текст материала</label>
-      <textarea class="form-input" id="mt_content" rows="4" placeholder="https://... или текст">${escapeHtml(m.content||'')}</textarea></div>
+    <div class="form-group"><label>${I18N.t('mat.link_or_text')}</label>
+      <textarea class="form-input" id="mt_content" rows="4" placeholder="https://...">${escapeHtml(m.content||'')}</textarea></div>
+    <div class="form-group">
+      <label>${I18N.t('mat.or_upload')}</label>
+      <input class="form-input" id="mt_file" type="file"
+             accept=".pdf,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.png,.jpg,.jpeg,.webp,.txt,.zip">
+      <div style="font-size:12px;color:#64748b;margin-top:4px">${I18N.t('mat.file_hint')}${isUrl(m.content) ? ` <a href="${escapeHtml(m.content)}" target="_blank">${I18N.t('mat.current_file')}</a>` : ''}</div>
+    </div>
     <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
@@ -773,6 +789,23 @@ async function saveMaterial(id) {
   };
   const err = document.getElementById('modalErr');
   if (!data.title) { err.textContent = I18N.t('common.error'); return; }
+  // Если выбран файл — читаем его в base64 dataUrl и отправляем
+  const fileInput = document.getElementById('mt_file');
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (file) {
+    if (file.size > 50 * 1024 * 1024) { err.textContent = 'Файл больше 50 МБ'; return; }
+    err.textContent = 'Загрузка файла…';
+    try {
+      data.dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(new Error('Не удалось прочитать файл'));
+        r.readAsDataURL(file);
+      });
+      data.fileName = file.name;
+      if (data.type === 'text') data.type = 'file'; // файл не может быть типом «текст»
+    } catch (e) { err.textContent = e.message; return; }
+  }
   try {
     if (id) await API.updateMaterial(id, data); else await API.createMaterial(data);
     closeModal(); await render(); showToast(I18N.t('common.saved'),'success');
@@ -1251,7 +1284,7 @@ async function loadSessions() {
     <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
       <button class="btn" onclick="openSessionForm('${gid}')">${I18N.t('session.conduct')}</button>
     </div>
-    <table class="table"><thead><tr><th data-i18n="common.date">Дата</th><th data-i18n="session.topic">Тема</th><th>Присутствовало</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
+    <table class="table"><thead><tr><th data-i18n="common.date">Дата</th><th data-i18n="session.topic">Тема</th><th data-i18n="session.present_count">Присутствовало</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
     ${sessions.length ? sessions.map(s=>`<tr>
       <td>${fmtDate(s.date)}</td><td>${escapeHtml(s.topic||'—')}</td><td>${s.presentCount ?? 0}</td>
       <td><button class="btn btn-ghost btn-sm" onclick="openAttendance('${s.id}','${gid}')">${I18N.t('session.attendance')}</button>
@@ -1283,10 +1316,14 @@ async function removeSession(id) {
   if (!confirm(I18N.t('common.confirm_delete'))) return;
   try { await API.deleteSession(id); await loadSessions(); } catch (e) { alert(e.message); }
 }
+// Состояние текущего открытого занятия (для дозагрузки артефактов по строкам)
+let _lesson = { sessionId: null, groupId: null, artifacts: [] };
+
 async function openAttendance(sessionId, groupId) {
-  const [existing, members] = await Promise.all([
+  const [existing, members, artifacts] = await Promise.all([
     API.getSessionAttendance(sessionId),
     groupId ? API.getMembers(groupId) : Promise.resolve([]),
+    API.getArtifacts('lesson_session_id=' + encodeURIComponent(sessionId)).catch(() => []),
   ]);
   const existMap = {};
   (existing || []).forEach(r => { existMap[r.studentId] = r.status; });
@@ -1296,29 +1333,107 @@ async function openAttendance(sessionId, groupId) {
   (members || []).forEach(m => { roster.push({ studentId: m.studentId, name: m.name || userName(m.studentId) }); seen.add(m.studentId); });
   (existing || []).forEach(r => { if (!seen.has(r.studentId)) { roster.push({ studentId: r.studentId, name: r.name || userName(r.studentId) }); seen.add(r.studentId); } });
 
+  _lesson = { sessionId, groupId, artifacts: artifacts || [] };
+
   document.getElementById('modalContent').innerHTML = `
-    <h2 data-i18n="session.attendance">Посещаемость</h2>
-    <p style="color:#64748b;font-size:13px">Отметка «${I18N.t('session.present')}» списывает одно занятие у активного абонемента. Исправление возвращает занятие.</p>
-    <div id="att_list">${roster.length ? roster.map(r=>{
-      const st = existMap[r.studentId] || 'present';
-      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eef2f7">
-        <span>${escapeHtml(r.name)}</span>
-        <select class="form-input att_sel" data-student="${r.studentId}" style="width:180px">
-          <option value="present" ${st==='present'?'selected':''}>${I18N.t('session.present')}</option>
-          <option value="absent" ${st==='absent'?'selected':''}>${I18N.t('session.absent')}</option>
-          <option value="late" ${st==='late'?'selected':''}>${I18N.t('session.late')}</option>
-          <option value="excused" ${st==='excused'?'selected':''}>${I18N.t('session.excused')}</option>
-        </select>
-      </div>`;
-    }).join('') : `<div style="color:#64748b">${I18N.t('common.none')} — в группе нет учеников</div>`}</div>
+    <h2 data-i18n="session.conduct">Проведение занятия</h2>
+    <p style="color:#64748b;font-size:13px">Отметка «${I18N.t('session.present')}» списывает одно занятие у активного абонемента. Возле каждого ученика можно добавить его работу (скрин/файл с описанием) и видеоотчёт.</p>
+    <div id="att_list">${roster.length ? roster.map(r=>lessonRowHtml(r, existMap[r.studentId] || 'present')).join('')
+      : `<div style="color:#64748b">${I18N.t('common.none')} — в группе нет учеников</div>`}</div>
     <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
       <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.close">Закрыть</button>
-      <button class="btn btn-success" onclick="saveAttendance('${sessionId}')" data-i18n="session.save_attendance">Сохранить</button>
+      <button class="btn btn-success" onclick="saveAttendance('${sessionId}')" data-i18n="session.save_attendance">Сохранить посещаемость</button>
     </div>`;
   document.getElementById('modal').classList.add('active');
   I18N.applyI18n(document.getElementById('modalContent'));
 }
+
+// Разметка строки одного ученика в окне проведения занятия
+function lessonRowHtml(r, st) {
+  const arts = _lesson.artifacts.filter(a => a.studentId === r.studentId);
+  return `<div class="lesson-row" data-row="${r.studentId}" style="padding:10px 0;border-bottom:1px solid #eef2f7">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <span style="font-weight:600">${escapeHtml(r.name)}</span>
+      <select class="form-input att_sel" data-student="${r.studentId}" style="width:170px">
+        <option value="present" ${st==='present'?'selected':''}>${I18N.t('session.present')}</option>
+        <option value="absent" ${st==='absent'?'selected':''}>${I18N.t('session.absent')}</option>
+        <option value="late" ${st==='late'?'selected':''}>${I18N.t('session.late')}</option>
+        <option value="excused" ${st==='excused'?'selected':''}>${I18N.t('session.excused')}</option>
+      </select>
+    </div>
+    <div class="art_list" data-student="${r.studentId}" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">
+      ${arts.map(artChipHtml).join('')}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+      <input class="form-input art_desc" data-student="${r.studentId}" placeholder="${I18N.t('session.work_desc')}" style="flex:1;min-width:160px;font-size:13px">
+      <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('wf_${r.studentId}').click()">📎 ${I18N.t('session.add_work')}</button>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('vf_${r.studentId}').click()">🎬 ${I18N.t('session.add_video')}</button>
+      <input id="wf_${r.studentId}" type="file" style="display:none" accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip" onchange="uploadArtifact('${r.studentId}','work',this)">
+      <input id="vf_${r.studentId}" type="file" style="display:none" accept="video/*" onchange="uploadArtifact('${r.studentId}','video',this)">
+    </div>
+  </div>`;
+}
+
+function artChipHtml(a) {
+  const icon = a.type === 'video' ? '🎬' : a.type === 'screenshot' ? '🖼' : a.type === 'link' ? '🔗' : '📄';
+  const label = escapeHtml(a.title || ({video:'Видеоотчёт',screenshot:'Скрин работы',file:'Файл',link:'Ссылка'}[a.type] || a.type));
+  const inner = a.url
+    ? `<a href="${escapeHtml(a.url)}" target="_blank" style="text-decoration:none">${icon} ${label}</a>`
+    : `<span style="color:#94a3b8">${icon} ${escapeHtml(a.unavailable || label)}</span>`;
+  return `<span class="art-chip" style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border-radius:8px;padding:4px 8px;font-size:12px">
+    ${inner}
+    <span style="cursor:pointer;color:#ef4444;font-weight:700" title="${I18N.t('common.delete')}" onclick="removeArtifact('${a.id}')">×</span>
+  </span>`;
+}
+
+// Загрузка работы/видео ученика. kind: 'work' | 'video'
+async function uploadArtifact(studentId, kind, inputEl) {
+  const file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  const err = document.getElementById('modalErr');
+  if (file.size > 50 * 1024 * 1024) { err.textContent = 'Файл больше 50 МБ'; inputEl.value=''; return; }
+  const descEl = document.querySelector(`.art_desc[data-student="${studentId}"]`);
+  const desc = descEl ? descEl.value.trim() : '';
+  const type = kind === 'video' ? 'video' : (file.type.startsWith('image/') ? 'screenshot' : 'file');
+  err.textContent = I18N.t('session.uploading');
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(new Error('Не удалось прочитать файл'));
+      r.readAsDataURL(file);
+    });
+    const art = await API.createArtifact({
+      lessonSessionId: _lesson.sessionId, studentId, type,
+      title: desc || file.name, dataUrl,
+    });
+    _lesson.artifacts.push(art);
+    refreshArtList(studentId);
+    if (descEl) descEl.value = '';
+    err.textContent = '';
+    showToast(I18N.t('common.saved'), 'success');
+  } catch (e) { err.textContent = e.message; }
+  finally { inputEl.value = ''; }
+}
+
+async function removeArtifact(id) {
+  if (!confirm(I18N.t('common.confirm_delete'))) return;
+  try {
+    await API.deleteArtifact(id);
+    const art = _lesson.artifacts.find(a => a.id === id);
+    _lesson.artifacts = _lesson.artifacts.filter(a => a.id !== id);
+    if (art) refreshArtList(art.studentId);
+  } catch (e) { document.getElementById('modalErr').textContent = e.message; }
+}
+
+function refreshArtList(studentId) {
+  const box = document.querySelector(`.art_list[data-student="${studentId}"]`);
+  if (!box) return;
+  const arts = _lesson.artifacts.filter(a => a.studentId === studentId);
+  box.innerHTML = arts.map(artChipHtml).join('');
+}
+
 async function saveAttendance(sessionId) {
   const records = Array.from(document.querySelectorAll('.att_sel')).map(s => ({ studentId: s.dataset.student, status: s.value }));
   try { await API.saveAttendance({ lessonSessionId: sessionId, records }); closeModal(); showToast(I18N.t('common.saved'),'success'); }
@@ -1349,13 +1464,13 @@ async function loadHw() {
   ]);
   window._hwSessions = sessions;
   box.innerHTML = `
-    <h3 class="section-title">Занятия группы</h3>
+    <h3 class="section-title" data-i18n="session.group_sessions">Занятия группы</h3>
     <table class="table"><thead><tr><th data-i18n="common.date">Дата</th><th data-i18n="session.topic">Тема</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
     ${sessions.length ? sessions.map(s=>`<tr><td>${fmtDate(s.date)}</td><td>${escapeHtml(s.topic||'—')}</td>
-      <td><button class="btn btn-sm" onclick="openHwForm('${s.id}')">${I18N.t('common.add')} ДЗ</button></td></tr>`).join('')
+      <td><button class="btn btn-sm" onclick="openHwForm('${s.id}')">${I18N.t('hw.add')}</button></td></tr>`).join('')
       : `<tr><td colspan="3" style="text-align:center;color:#64748b">${I18N.t('common.none')} — ${I18N.t('admin.no_sessions')}</td></tr>`}
     </tbody></table>
-    <h3 class="section-title" style="margin-top:18px">Назначенные ДЗ</h3>
+    <h3 class="section-title" style="margin-top:18px" data-i18n="session.assigned_hw">Назначенные ДЗ</h3>
     <table class="table"><thead><tr><th data-i18n="admin.hw_module">Модуль</th><th data-i18n="admin.hw_tasks_count">Задач</th><th data-i18n="admin.hw_deadline">Срок</th><th data-i18n="admin.hw_session">Занятие</th><th data-i18n="common.actions">Действия</th></tr></thead><tbody>
     ${list.length ? list.map(h=>`<tr>
       <td>${escapeHtml(h.moduleTitle||'—')}</td>
@@ -1370,11 +1485,11 @@ async function loadHw() {
 function openHwForm(sessionId) {
   document.getElementById('modalContent').innerHTML = `
     <h2>${I18N.t('admin.homework')}</h2>
-    <div class="form-group"><label>Модуль (необязательно — назначит все задачи модуля)</label><select class="form-input" id="hwf_module">
-      <option value="">— не указан —</option>
+    <div class="form-group"><label>${I18N.t('hw.module_opt')}</label><select class="form-input" id="hwf_module">
+      <option value="">${I18N.t('hw.not_set')}</option>
       ${cache.modules.map(m=>`<option value="${m.id}">${escapeHtml(m.title)}</option>`).join('')}</select></div>
-    <div class="form-group"><label>Или ID конкретных задач через запятую</label><input class="form-input" id="hwf_tasks" placeholder="напр. 12, 15, 18"></div>
-    <div class="form-group"><label>Срок сдачи (необязательно)</label><input class="form-input" id="hwf_due" type="date"></div>
+    <div class="form-group"><label>${I18N.t('hw.task_ids')}</label><input class="form-input" id="hwf_tasks" placeholder="${I18N.t('hw.task_ids_ph')}"></div>
+    <div class="form-group"><label>${I18N.t('hw.due_opt')}</label><input class="form-input" id="hwf_due" type="date"></div>
     <div id="modalErr" style="color:#ef4444;font-weight:700;min-height:18px"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-outline" onclick="closeModal()" data-i18n="common.cancel">Отмена</button>
@@ -1389,7 +1504,7 @@ async function saveHw(sessionId) {
   const dueRaw = document.getElementById('hwf_due').value;
   const data = { lessonSessionId: sessionId, moduleId, taskIds, dueDate: dueRaw ? new Date(dueRaw).getTime() : null };
   const err = document.getElementById('modalErr');
-  if (!moduleId && !taskIds.length) { err.textContent = 'Укажите модуль или задачи'; return; }
+  if (!moduleId && !taskIds.length) { err.textContent = I18N.t('hw.need_module_or_tasks'); return; }
   try { await API.createHomework(data); closeModal(); await loadHw(); showToast(I18N.t('common.saved'),'success'); }
   catch (e) { err.textContent = e.message; }
 }
