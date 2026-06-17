@@ -79,6 +79,10 @@ app.use(express.static(publicDir));
 app.get(/^\/(?!api\/).*/, (req, res, next) => {
   const ext = path.extname(req.path);
   if (ext) return next();
+  // /admin и /admin/* → отдаём public/admin/index.html
+  if (req.path === '/admin' || req.path.startsWith('/admin/')) {
+    return res.sendFile(path.join(publicDir, 'admin', 'index.html'));
+  }
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
