@@ -673,18 +673,9 @@ async function removeTask(id) {
    НОВЫЕ РАЗДЕЛЫ: материалы, доступ, CRM, права, журнал, ДЗ, уведомления
    ============================================================ */
 const tabEl = () => document.getElementById('tab');
-// Безопасный парсер дат: принимает число (мс), числовую строку ("1781568000000")
-// и ISO-строку ("2026-06-16"). Раньше new Date("1781568000000") давало Invalid Date.
-function _toDate(v){
-  if(v==null||v==='')return null;
-  if(v instanceof Date)return isNaN(v.getTime())?null:v;
-  if(typeof v==='number')return isNaN(v)?null:new Date(v);
-  const s=String(v).trim(); if(!s)return null;
-  const d=/^\d{8,}$/.test(s)?new Date(Number(s)):new Date(s);
-  return isNaN(d.getTime())?null:d;
-}
-const fmtDate = (v) => { const d=_toDate(v); return d?d.toLocaleDateString():'—'; };
-const fmtDateTime = (v) => { const d=_toDate(v); return d?d.toLocaleString():'—'; };
+// fmtDate / fmtDateTime / toDate — берём из app.js (window.fmtDate и т.д.)
+// Локальный псевдоним _toDate для совместимости внутри этого файла
+const _toDate = window.toDate;
 const _byId = (arr, id, f='id') => arr.find(x => x[f] === id);
 function moduleTitle(id) { const m = _byId(cache.modules, id); return m ? m.title : id; }
 function userName(id) { const u = _byId(cache.users, id); return u ? u.name : (id || '—'); }
