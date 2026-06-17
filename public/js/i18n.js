@@ -72,6 +72,7 @@
       'session.conduct': 'Провести занятие', 'session.topic': 'Тема',
       'session.attendance': 'Посещаемость', 'session.present': 'Был',
       'session.absent': 'Отсутствовал', 'session.late': 'Опоздал',
+      'session.excused': 'Уважительная причина',
       'session.save_attendance': 'Сохранить посещаемость',
 
       'mat.title': 'Материалы курса', 'mat.course': 'Курс', 'mat.link': 'Ссылка',
@@ -179,6 +180,7 @@
       'session.conduct': 'Сабақ өткізу', 'session.topic': 'Тақырып',
       'session.attendance': 'Қатысу', 'session.present': 'Болды',
       'session.absent': 'Болмады', 'session.late': 'Кешікті',
+      'session.excused': 'Дәлелді себеп',
       'session.save_attendance': 'Қатысуды сақтау',
 
       'mat.title': 'Курс материалдары', 'mat.course': 'Курс', 'mat.link': 'Сілтеме',

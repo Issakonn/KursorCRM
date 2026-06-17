@@ -77,11 +77,231 @@ if (/teacher_id\s+TEXT\s+NOT\s+NULL/i.test(tableSql('groups'))) {
   console.log('[fix_db] ✅ groups: NOT NULL снят.');
 }
 
-// ── 4. КЛЮЧЕВОЙ ФИХ: пересоздать group_members и group_schedule ───────────────
-// Когда groups переименовывалась в groups_old, SQLite обновил FK в дочерних
-// таблицах — теперь они ссылаются на groups_old (которой нет). 
-// Единственный способ починить — пересоздать эти таблицы.
+// ── 4. КЛЮЧЕВОЙ ФИКС: пересоздать ВСЕ таблицы со сломанным FK на *_old ─────────
+// Когда users / groups / tasks переименовывались в *_old без PRAGMA legacy_alter_table = ON,
+// SQLite ≥3.25 автоматически обновил FK во всех дочерних таблицах на *_old.
+// После того как *_old была удалена, эти дочерние таблицы навечно ссылаются на
+// несуществующие таблицы, и любая вставка в них падает с no such table: main.users_old
+// (или groups_old / tasks_old). Единственный способ — пересоздать их.
 
+const FK_FIX_TABLES = {
+  progress: {
+    create: `CREATE TABLE progress (
+      user_id TEXT PRIMARY KEY,
+      points INTEGER NOT NULL DEFAULT 0,
+      streak INTEGER NOT NULL DEFAULT 0,
+      last_active INTEGER,
+      badges TEXT NOT NULL DEFAULT '["beginner"]',
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [],
+  },
+  task_progress: {
+    create: `CREATE TABLE task_progress (
+      user_id TEXT NOT NULL, task_id INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('progress','done')),
+      points INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,
+      used_hint INTEGER NOT NULL DEFAULT 0, submission TEXT,
+      completed_at INTEGER, updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, task_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [
+      'CREATE INDEX IF NOT EXISTS idx_task_progress_user ON task_progress(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_task_progress_task ON task_progress(task_id)',
+    ],
+  },
+  lesson_progress: {
+    create: `CREATE TABLE lesson_progress (
+      user_id TEXT NOT NULL, module_id TEXT NOT NULL,
+      intro_step INTEGER NOT NULL DEFAULT 0, intro_done INTEGER NOT NULL DEFAULT 0,
+      mini_done INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, module_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+    )`,
+    indexes: ['CREATE INDEX IF NOT EXISTS idx_lesson_progress_user ON lesson_progress(user_id)'],
+  },
+  feedback: {
+    create: `CREATE TABLE feedback (
+      id TEXT PRIMARY KEY, teacher_id TEXT NOT NULL, student_id TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('lesson','course','general')),
+      lesson_session_id TEXT, module_id TEXT, text TEXT NOT NULL,
+      is_internal INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+      FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [
+      'CREATE INDEX IF NOT EXISTS idx_feedback_student ON feedback(student_id)',
+      'CREATE INDEX IF NOT EXISTS idx_feedback_teacher ON feedback(teacher_id)',
+    ],
+  },
+  teacher_course_access: {
+    create: `CREATE TABLE teacher_course_access (
+      id TEXT PRIMARY KEY, teacher_id TEXT NOT NULL, course_id TEXT NOT NULL,
+      granted_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, granted_by TEXT NOT NULL,
+      FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (course_id) REFERENCES modules(id) ON DELETE CASCADE
+    )`,
+    indexes: ['CREATE INDEX IF NOT EXISTS idx_tca_teacher ON teacher_course_access(teacher_id)'],
+  },
+  students_crm: {
+    create: `CREATE TABLE students_crm (
+      user_id TEXT PRIMARY KEY, full_name TEXT NOT NULL,
+      birth_date TEXT, gender TEXT, branch_id TEXT, tariff_id TEXT,
+      subscription_issued_at INTEGER, visits_left INTEGER DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','frozen','inactive')),
+      responsible_manager_id TEXT, parent_name TEXT, parent_phone TEXT,
+      document_id TEXT, comment TEXT,
+      video_consent INTEGER NOT NULL DEFAULT 0, video_consent_date INTEGER,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (branch_id) REFERENCES branches(id),
+      FOREIGN KEY (tariff_id) REFERENCES tariffs(id),
+      FOREIGN KEY (responsible_manager_id) REFERENCES users(id)
+    )`,
+    indexes: [
+      'CREATE INDEX IF NOT EXISTS idx_crm_branch  ON students_crm(branch_id)',
+      'CREATE INDEX IF NOT EXISTS idx_crm_status  ON students_crm(status)',
+    ],
+  },
+  teacher_permissions: {
+    create: `CREATE TABLE teacher_permissions (
+      teacher_id TEXT NOT NULL, permission_key TEXT NOT NULL,
+      value INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (teacher_id, permission_key),
+      FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [],
+  },
+  lesson_sessions: {
+    create: `CREATE TABLE lesson_sessions (
+      id TEXT PRIMARY KEY, group_id TEXT NOT NULL, date TEXT NOT NULL,
+      topic TEXT, conducted_by TEXT, created_at INTEGER NOT NULL,
+      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+      FOREIGN KEY (conducted_by) REFERENCES users(id)
+    )`,
+    indexes: ['CREATE INDEX IF NOT EXISTS idx_ls_group ON lesson_sessions(group_id)'],
+  },
+  attendance: {
+    create: `CREATE TABLE attendance (
+      id TEXT PRIMARY KEY, lesson_session_id TEXT NOT NULL, student_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('present','absent','excused','late')),
+      marked_at INTEGER NOT NULL,
+      FOREIGN KEY (lesson_session_id) REFERENCES lesson_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_unique ON attendance(lesson_session_id, student_id)',
+      'CREATE INDEX IF NOT EXISTS idx_attendance_student ON attendance(student_id)',
+    ],
+  },
+  homework_assignments: {
+    create: `CREATE TABLE homework_assignments (
+      id TEXT PRIMARY KEY, homework_id TEXT NOT NULL, student_id TEXT NOT NULL,
+      FOREIGN KEY (homework_id) REFERENCES homework(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [
+      'CREATE INDEX IF NOT EXISTS idx_ha_student ON homework_assignments(student_id)',
+      'CREATE INDEX IF NOT EXISTS idx_ha_hw      ON homework_assignments(homework_id)',
+    ],
+  },
+  session_artifacts: {
+    create: `CREATE TABLE session_artifacts (
+      id TEXT PRIMARY KEY, lesson_session_id TEXT NOT NULL, student_id TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('video','screenshot','file','link')),
+      title TEXT, file_path TEXT, url TEXT,
+      created_at INTEGER NOT NULL, expires_at INTEGER,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (lesson_session_id) REFERENCES lesson_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [
+      'CREATE INDEX IF NOT EXISTS idx_sa_student ON session_artifacts(student_id)',
+      'CREATE INDEX IF NOT EXISTS idx_sa_session ON session_artifacts(lesson_session_id)',
+      'CREATE INDEX IF NOT EXISTS idx_sa_expires ON session_artifacts(expires_at)',
+    ],
+  },
+  parent_children: {
+    create: `CREATE TABLE parent_children (
+      id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, student_id TEXT NOT NULL,
+      since INTEGER NOT NULL,
+      FOREIGN KEY (parent_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: [
+      'CREATE INDEX IF NOT EXISTS idx_pc_parent  ON parent_children(parent_id)',
+      'CREATE INDEX IF NOT EXISTS idx_pc_student ON parent_children(student_id)',
+    ],
+  },
+  notifications: {
+    create: `CREATE TABLE notifications (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL,
+      text TEXT NOT NULL, link TEXT,
+      channel TEXT NOT NULL DEFAULT 'in_app',
+      read INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    indexes: ['CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read)'],
+  },
+  group_members: {
+    create: `CREATE TABLE group_members (
+      id TEXT PRIMARY KEY, student_id TEXT NOT NULL, group_id TEXT NOT NULL,
+      since INTEGER NOT NULL, until INTEGER,
+      FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (group_id)   REFERENCES groups(id) ON DELETE CASCADE
+    )`,
+    indexes: [
+      'CREATE INDEX IF NOT EXISTS idx_gm_student ON group_members(student_id)',
+      'CREATE INDEX IF NOT EXISTS idx_gm_group   ON group_members(group_id)',
+    ],
+  },
+  group_schedule: {
+    create: `CREATE TABLE group_schedule (
+      id TEXT PRIMARY KEY, group_id TEXT NOT NULL,
+      weekday INTEGER NOT NULL CHECK(weekday BETWEEN 0 AND 6),
+      start_time TEXT NOT NULL, duration_min INTEGER NOT NULL,
+      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+    )`,
+    indexes: ['CREATE INDEX IF NOT EXISTS idx_gs_group ON group_schedule(group_id)'],
+  },
+};
+
+function recreateBrokenTable(name, schema) {
+  if (!tableExists(name)) return false;
+  const sql = tableSql(name);
+  const broken = /users_old|groups_old|tasks_old/i.test(sql);
+  if (!broken) return false;
+  console.log(`[fix_db] ⚠️  ${name}: FK сломан (ссылается на *_old) — пересоздаю...`);
+  const oldCols = db.prepare(`PRAGMA table_info(${name})`).all().map(c => c.name);
+  const tmp = `${name}_brokenfk_${Date.now()}`;
+  db.pragma('legacy_alter_table = ON');
+  db.exec(`ALTER TABLE ${name} RENAME TO ${tmp}`);
+  db.pragma('legacy_alter_table = OFF');
+  db.exec(schema.create);
+  for (const idx of schema.indexes) db.exec(idx);
+  const newCols = db.prepare(`PRAGMA table_info(${name})`).all().map(c => c.name);
+  const common = oldCols.filter(c => newCols.includes(c));
+  if (common.length) {
+    db.exec(`INSERT INTO ${name} (${common.join(',')}) SELECT ${common.join(',')} FROM ${tmp}`);
+  }
+  db.exec(`DROP TABLE ${tmp}`);
+  console.log(`[fix_db] ✅ ${name}: пересоздана.`);
+  return true;
+}
+
+let fixedCount = 0;
+for (const [name, schema] of Object.entries(FK_FIX_TABLES)) {
+  try {
+    if (recreateBrokenTable(name, schema)) fixedCount++;
+  } catch (e) {
+    console.error(`[fix_db] ❌ ${name}: ошибка починки —`, e.message);
+  }
+}
+console.log(`[fix_db] 🔧 Починено сломанных FK: ${fixedCount}`);
+
+// Историческая ветка «пересоздать для надёжности» group_members / group_schedule оставлена
+// на случай, если FK не был сломан, но пользователь хочет жёстко прогнать пересоздание.
 if (tableExists('group_members')) {
   const fkBroken = tableSql('group_members').includes('groups_old');
   if (fkBroken) {

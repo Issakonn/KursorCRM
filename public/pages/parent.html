@@ -121,9 +121,13 @@ async function loadChild(id) {
 }
 
 function attendBadge(status) {
+  // excused — реальный валидный статус из БД, а раньше он по ошибке рендерился как «Отсутствовал».
   if (status === 'present') return `<span class="badge badge-success">${I18N.t('session.present')}</span>`;
-  if (status === 'late') return `<span class="badge badge-warning">${I18N.t('session.late')}</span>`;
-  return `<span class="badge badge-danger">${I18N.t('session.absent')}</span>`;
+  if (status === 'late')    return `<span class="badge badge-warning">${I18N.t('session.late')}</span>`;
+  if (status === 'excused') return `<span class="badge badge-info">${I18N.t('session.excused')}</span>`;
+  if (status === 'absent')  return `<span class="badge badge-danger">${I18N.t('session.absent')}</span>`;
+  // Неизвестный статус — не врём, показываем как есть.
+  return `<span class="badge">${escapeHtml(String(status || '?'))}</span>`;
 }
 function artifactLabel(type) {
   return { video:'Видео', screenshot:'Скриншот', file:'Файл', link:'Ссылка' }[type] || 'Материал';

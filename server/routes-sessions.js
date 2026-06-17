@@ -32,7 +32,7 @@ router.get('/lesson-sessions', (req, res) => {
   if (to) { where.push('ls.date <= ?'); params.push(to); }
   const rows = db.prepare(`
     SELECT ls.*, u.name AS conductor_name,
-      (SELECT COUNT(*) FROM attendance a WHERE a.lesson_session_id = ls.id AND a.status='present') AS present_count
+      (SELECT COUNT(*) FROM attendance a WHERE a.lesson_session_id = ls.id AND a.status IN ('present','late')) AS present_count
     FROM lesson_sessions ls
     LEFT JOIN users u ON u.id = ls.conducted_by
     WHERE ${where.join(' AND ')}
@@ -63,7 +63,8 @@ router.delete('/lesson-sessions/:id', (req, res) => {
   if (!ls) return res.status(404).json({ error: 'Не найдено' });
   if (!canManageGroup(req.user, ls.group_id)) return res.status(403).json({ error: 'Это не ваша группа' });
   // вернуть посещения, списанные за это занятие
-  const present = db.prepare("SELECT student_id FROM attendance WHERE lesson_session_id = ? AND status='present'").all(req.params.id);
+  // «present» и «late» в равной степени списывали визит — возвращаем оба.
+  const present = db.prepare("SELECT student_id FROM attendance WHERE lesson_session_id = ? AND status IN ('present','late')").all(req.params.id);
   const refund = db.prepare("UPDATE students_crm SET visits_left = visits_left + 1 WHERE user_id = ? AND status='active'");
   const txn = db.transaction(() => {
     for (const p of present) refund.run(p.student_id);
@@ -118,17 +119,25 @@ router.post('/attendance', (req, res) => {
   const txn = db.transaction(() => {
     for (const rec of records) {
       const { studentId, status } = rec;
-      if (!studentId || !['present', 'absent', 'excused'].includes(status)) continue;
+      // Разрешённые статусы: present, absent, excused (уважительно), late (опоздал).
+      // «Опоздал» трактуется как присутствие для списания абонемента (см. ниже).
+      if (!studentId || !['present', 'absent', 'excused', 'late'].includes(status)) {
+        // Не «continue» молча — явно логируем, чтобы не было «сохранено» для брака.
+        console.warn('[attendance] пропущена запись: studentId=%s status=%s', studentId, status);
+        continue;
+      }
       const prev = getPrev.get(lessonSessionId, studentId);
       const prevStatus = prev ? prev.status : null;
       upsert.run(genId('att'), lessonSessionId, studentId, status, Date.now());
 
       const crm = getCrm.get(studentId);
       if (!crm) continue; // нет CRM-карточки — не списываем
+      // Для списания «опоздал» (late) считаем присутствием — ученик всё-таки был на занятии.
+      const isPresent = (s) => s === 'present' || s === 'late';
       // списание только для активных абонементов
-      if (status === 'present' && prevStatus !== 'present') {
+      if (isPresent(status) && !isPresent(prevStatus)) {
         if (crm.status === 'active') { decVisit.run(studentId); charged.push({ studentId, action: 'charged' }); }
-      } else if (prevStatus === 'present' && status !== 'present') {
+      } else if (isPresent(prevStatus) && !isPresent(status)) {
         // возврат посещения при исправлении
         if (crm.status === 'active') { incVisit.run(studentId); charged.push({ studentId, action: 'refunded' }); }
       }

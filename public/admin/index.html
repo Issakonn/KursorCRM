@@ -413,7 +413,7 @@ function openModuleForm(id) {
     <div class="form-group"><label>ID (уникальный, латиницей)</label><input class="form-input" id="m_id" value="${escapeHtml(m.id||'')}" ${id?'readonly':''}></div>
     <div class="form-group"><label>Язык / технология</label>
       <select class="form-input" id="m_lang">
-        ${Object.entries(KURSOR_DB.LANGS).map(([k,l]) => `<option value="${k}" ${m.lang===k?'selected':''}>${l.icon ? `<img src="${l.icon}" style="width:14px;height:14px;object-fit:contain;vertical-align:-2px">` : ''} ${l.name}</option>`).join('')}
+        ${Object.entries(KURSOR_DB.LANGS).map(([k,l]) => `<option value="${k}" ${m.lang===k?'selected':''}>${l.name}</option>`).join('')}
       </select>
     </div>
     <div class="form-group"><label>Название модуля</label><input class="form-input" id="m_title" value="${escapeHtml(m.title||'')}"></div>
@@ -509,7 +509,8 @@ function openTaskForm(id) {
       <select class="form-input" id="t_module">
         ${cache.modules.map(m => {
           const lang = KURSOR_DB.LANGS[m.lang];
-          return `<option value="${m.id}" ${t.module===m.id?'selected':''}>${lang?.icon ? `<img src="${lang.icon}" style="width:14px;height:14px;vertical-align:-2px">` : ''} ${escapeHtml(m.title)}</option>`;
+          // Браузеры не рендерят <img> внутри <option> — оставляем только текст.
+          return `<option value="${m.id}" ${t.module===m.id?'selected':''}>${escapeHtml(m.title)}</option>`;
         }).join('')}
       </select>
     </div>
@@ -1302,10 +1303,11 @@ async function openAttendance(sessionId, groupId) {
       const st = existMap[r.studentId] || 'present';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eef2f7">
         <span>${escapeHtml(r.name)}</span>
-        <select class="form-input att_sel" data-student="${r.studentId}" style="width:160px">
+        <select class="form-input att_sel" data-student="${r.studentId}" style="width:180px">
           <option value="present" ${st==='present'?'selected':''}>${I18N.t('session.present')}</option>
           <option value="absent" ${st==='absent'?'selected':''}>${I18N.t('session.absent')}</option>
           <option value="late" ${st==='late'?'selected':''}>${I18N.t('session.late')}</option>
+          <option value="excused" ${st==='excused'?'selected':''}>${I18N.t('session.excused')}</option>
         </select>
       </div>`;
     }).join('') : `<div style="color:#64748b">${I18N.t('common.none')} — в группе нет учеников</div>`}</div>

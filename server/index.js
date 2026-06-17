@@ -24,6 +24,11 @@ seedCrm();
 
 const app = express();
 app.use(cors());
+// Для видеоотчётов/файлов занятий нужны большие тела (до 50 МБ файл + base64 +33% + JSON-обвязка).
+// Раньше был общий лимит 4 МБ, и любой файл >~3 МБ падал с PayloadTooLargeError ДО того,
+// как доходил до проверки 50 МБ в routes-artifacts.js. Навешиваем большой лимит ТОЛЬКО
+// на /api/session-artifacts, чтобы не открывать остальные ручки для нежелательных payload-ов.
+app.use('/api/session-artifacts', express.json({ limit: '70mb' }));
 app.use(express.json({ limit: '4mb' })); // 4mb: вмещает base64-аватарку до 2 МБ
 
 // Логирование API-запросов

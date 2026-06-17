@@ -4,9 +4,25 @@
 const express = require('express');
 const db = require('./db');
 const { authRequired, requireRole } = require('./auth');
+const { hasPermission } = require('./permissions');
 
 const router = express.Router();
 router.use(authRequired);
+
+// Право «Управлять задачами» (manage_tasks) — это создание/редактирование/удаление
+// модулей и задач. Админ — всегда может. Для teacher/assistant — только если выдано право.
+// Раньше эти ручки использовали requireRole('admin','teacher'), и переключатель
+// manage_tasks был декоративным.
+function requireManageTasks(req, res, next) {
+  if (req.user && req.user.role === 'admin') return next();
+  if (!req.user || !['teacher', 'assistant'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+  if (!hasPermission(req.user, 'manage_tasks')) {
+    return res.status(403).json({ error: 'Нет права управлять модулями и задачами' });
+  }
+  next();
+}
 
 function moduleRow(r) {
   return {
@@ -38,7 +54,7 @@ router.get('/modules', (req, res) => {
   res.json(rows.map(moduleRow));
 });
 
-router.post('/modules', requireRole('admin', 'teacher'), (req, res) => {
+router.post('/modules', requireManageTasks, (req, res) => {
   const { id, lang, title, description, video, explanation } = req.body || {};
   if (!id || !lang || !title) return res.status(400).json({ error: 'id, lang, title обязательны' });
   const exists = db.prepare('SELECT 1 FROM modules WHERE id = ?').get(id);
@@ -51,7 +67,7 @@ router.post('/modules', requireRole('admin', 'teacher'), (req, res) => {
   res.status(201).json(moduleRow(db.prepare('SELECT * FROM modules WHERE id = ?').get(id)));
 });
 
-router.put('/modules/:id', requireRole('admin', 'teacher'), (req, res) => {
+router.put('/modules/:id', requireManageTasks, (req, res) => {
   const cur = db.prepare('SELECT * FROM modules WHERE id = ?').get(req.params.id);
   if (!cur) return res.status(404).json({ error: 'Не найден' });
   const { lang, title, description, video, explanation } = req.body || {};
@@ -68,7 +84,7 @@ router.put('/modules/:id', requireRole('admin', 'teacher'), (req, res) => {
   res.json(moduleRow(db.prepare('SELECT * FROM modules WHERE id = ?').get(req.params.id)));
 });
 
-router.delete('/modules/:id', requireRole('admin'), (req, res) => {
+router.delete('/modules/:id', requireManageTasks, (req, res) => {
   const info = db.prepare('DELETE FROM modules WHERE id = ?').run(req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Не найден' });
   res.json({ ok: true });
@@ -79,7 +95,7 @@ router.get('/tasks', (req, res) => {
   res.json(rows.map(taskRow));
 });
 
-router.post('/tasks', requireRole('admin', 'teacher'), (req, res) => {
+router.post('/tasks', requireManageTasks, (req, res) => {
   const t = req.body || {};
   if (!t.module || !t.type || !t.title) return res.status(400).json({ error: 'module, type, title обязательны' });
   const nextId = (db.prepare('SELECT COALESCE(MAX(id), 0)+1 AS n FROM tasks').get().n) || 1;
@@ -103,7 +119,7 @@ router.post('/tasks', requireRole('admin', 'teacher'), (req, res) => {
   res.status(201).json(taskRow(db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)));
 });
 
-router.put('/tasks/:id', requireRole('admin', 'teacher'), (req, res) => {
+router.put('/tasks/:id', requireManageTasks, (req, res) => {
   const id = parseInt(req.params.id);
   const cur = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!cur) return res.status(404).json({ error: 'Не найдена' });
@@ -133,7 +149,7 @@ router.put('/tasks/:id', requireRole('admin', 'teacher'), (req, res) => {
   res.json(taskRow(db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)));
 });
 
-router.delete('/tasks/:id', requireRole('admin', 'teacher'), (req, res) => {
+router.delete('/tasks/:id', requireManageTasks, (req, res) => {
   const info = db.prepare('DELETE FROM tasks WHERE id = ?').run(parseInt(req.params.id));
   if (!info.changes) return res.status(404).json({ error: 'Не найдена' });
   res.json({ ok: true });

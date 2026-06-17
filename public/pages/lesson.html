@@ -159,7 +159,20 @@ function renderIntro() {
 
 function nextIntro() {
   const total = lesson.intro.length;
-  if (user.role === 'student') API.setIntroStep(moduleId, introIdx, total).catch(() => {});
+  // Раньше было .catch(() => {}) — тихо глотали ошибку, в результате прогресс по уроку
+  // мог не сохраниться, и никто об этом не узнавал. Теперь — логируем и показываем тост.
+  if (user.role === 'student') {
+    API.setIntroStep(moduleId, introIdx, total).catch((e) => {
+      console.error('setIntroStep failed:', e);
+      try {
+        const el = document.createElement('div');
+        el.textContent = 'Шаг урока не сохранён: ' + (e && e.message ? e.message : 'ошибка сети');
+        el.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15)';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 5000);
+      } catch {}
+    });
+  }
   if (introIdx < total - 1) { introIdx++; render(); }
   else { stage = lesson.miniTask ? 'mini' : 'tasks'; render(); }
 }
