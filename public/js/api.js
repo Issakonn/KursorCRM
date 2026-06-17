@@ -75,6 +75,7 @@
     return _users;
   }
   async function getStudents() { return await API_.get('/api/users/students'); }
+  const searchStudents = (q) => API_.get('/api/users/students?q=' + encodeURIComponent(q || ''));
 
   const createUser   = (data) => API_.post('/api/users', data);
   const updateUser   = (id, data) => API_.put('/api/users/' + encodeURIComponent(id), data);
@@ -244,7 +245,7 @@
 
   window.API = {
     login, logout, getToken, getCurrentUser, refreshCurrentUser, requireAuth,
-    getModules, getTasks, getUsers, getStudents,
+    getModules, getTasks, getUsers, getStudents, searchStudents,
     createUser, updateUser, deleteUser,
     getParentChildren, setParentChildren, getStudentParents,
     createModule, updateModule, deleteModule,

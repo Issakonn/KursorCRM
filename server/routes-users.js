@@ -60,6 +60,14 @@ router.get('/students', requireRole('teacher', 'admin'), (req, res) => {
   } else {
     rows = db.prepare("SELECT * FROM users WHERE role='student' ORDER BY name").all();
   }
+  const q = (req.query.q || '').toString().trim().toLowerCase();
+  if (q) {
+    // Фильтруем в JS, а не через SQL LIKE: LIKE в SQLite не складывает регистр
+    // для кириллицы, поэтому поиск "алия" не находил бы "Алия" в базе.
+    rows = rows.filter(r =>
+      (r.name || '').toLowerCase().includes(q) || (r.login || '').toLowerCase().includes(q)
+    ).slice(0, 25);
+  }
   res.json(rows.map(rowToUser));
 });
 
@@ -220,12 +228,19 @@ router.put('/:id/children', requireRole('admin'), (req, res) => {
   const { children } = req.body; // массив student_id
   if (!Array.isArray(children)) return res.status(400).json({ error: 'children должен быть массивом' });
 
+  // Убираем дубликаты id, чтобы не плодить лишние строки связи
+  const uniqueChildren = [...new Set(children)];
+
+  const insertLink = db.prepare(
+    'INSERT OR IGNORE INTO parent_children (id, parent_id, student_id, since) VALUES (?, ?, ?, ?)'
+  );
   const upsert = db.transaction(() => {
     db.prepare('DELETE FROM parent_children WHERE parent_id = ?').run(parentId);
-    for (const sid of children) {
+    for (const sid of uniqueChildren) {
       const student = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'student'").get(sid);
       if (student) {
-        db.prepare('INSERT OR IGNORE INTO parent_children (parent_id, student_id) VALUES (?, ?)').run(parentId, sid);
+        const linkId = `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        insertLink.run(linkId, parentId, sid, Date.now());
       }
     }
   });
