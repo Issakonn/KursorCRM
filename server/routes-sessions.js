@@ -144,7 +144,61 @@ router.post('/attendance', (req, res) => {
     }
   });
   txn();
-  res.json({ ok: true, charged });
+
+  // -------- Проверка: всем присутствовавшим ученикам загружен отчёт (работа/видео)? --------
+  // Если нет — предупреждаем того, кто проводил занятие, и всех админов (уведомление "красным").
+  // Используем детерминированный id уведомления (привязан к занятию+получателю), чтобы при
+  // повторном сохранении обновлять одно и то же напоминание, а не плодить дубликаты, и снимать
+  // его автоматически, как только все отчёты будут загружены.
+  let missingReports = [];
+  try {
+    const presentIds = [...new Set(
+      records.filter(r => r && r.studentId && ['present', 'late'].includes(r.status)).map(r => r.studentId)
+    )];
+    if (presentIds.length) {
+      const ph = presentIds.map(() => '?').join(',');
+      const reported = new Set(
+        db.prepare(`SELECT DISTINCT student_id FROM session_artifacts WHERE lesson_session_id = ? AND deleted = 0 AND student_id IN (${ph})`)
+          .all(lessonSessionId, ...presentIds)
+          .map(r => r.student_id)
+      );
+      const missingIds = presentIds.filter(sid => !reported.has(sid));
+      if (missingIds.length) {
+        const mph = missingIds.map(() => '?').join(',');
+        const names = db.prepare(`SELECT id, name FROM users WHERE id IN (${mph})`).all(...missingIds);
+        const nameById = Object.fromEntries(names.map(n => [n.id, n.name]));
+        missingReports = missingIds.map(sid => ({ studentId: sid, name: nameById[sid] || sid }));
+      }
+
+      const group = db.prepare('SELECT name FROM groups WHERE id = ?').get(ls.group_id);
+      const groupName = group ? group.name : '';
+      const recipients = new Set([req.user.id]);
+      db.prepare("SELECT id FROM users WHERE role = 'admin'").all().forEach(a => recipients.add(a.id));
+
+      const del = db.prepare('DELETE FROM notifications WHERE id = ?');
+      const put = db.prepare(`
+        INSERT OR REPLACE INTO notifications (id, user_id, type, text, link, channel, read, created_at)
+        VALUES (?, ?, 'missing_report', ?, '/admin/index.html', 'in_app', 0, ?)
+      `);
+      const namesList = missingReports.map(m => m.name).join(', ');
+      const roleLabel = req.user.role === 'assistant' ? 'ассистент' : req.user.role === 'admin' ? 'администратор' : 'преподаватель';
+      for (const uid of recipients) {
+        const notifId = `missing_report_${lessonSessionId}_${uid}`;
+        if (missingReports.length) {
+          const text = uid === req.user.id
+            ? `Вы не загрузили отчёт (работа/видео) по занятию «${groupName}» для: ${namesList}`
+            : `${req.user.name || 'Сотрудник'} (${roleLabel}) не загрузил(а) отчёт по занятию «${groupName}» для: ${namesList}`;
+          put.run(notifId, uid, text, Date.now());
+        } else {
+          del.run(notifId); // все отчёты загружены — снимаем напоминание
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[attendance] проверка отчётов не выполнена:', e.message);
+  }
+
+  res.json({ ok: true, charged, missingReports });
 });
 
 /* ============================================================

@@ -92,8 +92,8 @@ async function toggleNotifPanel() {
     const head = `<div class="notif-head"><b>${I18N.t('nav.notifications')}</b>
       <button class="btn btn-sm btn-ghost" onclick="markAllNotif()">${I18N.t('notif.mark_all')}</button></div>`;
     const list = items.map(n => `
-      <a class="notif-item ${n.read ? '' : 'unread'}" href="${n.link || '#'}" onclick="markNotif('${n.id}')">
-        <div class="notif-text">${escapeHtml(n.text)}</div>
+      <a class="notif-item ${n.read ? '' : 'unread'} ${n.type === 'missing_report' ? 'urgent' : ''}" href="${n.link || '#'}" onclick="markNotif('${n.id}')">
+        <div class="notif-text">${n.type === 'missing_report' ? '⚠️ ' : ''}${escapeHtml(n.text)}</div>
         <div class="notif-time">${fmtDateTime(n.createdAt)}</div>
       </a>`).join('');
     panel.innerHTML = head + `<div class="notif-list">${list}</div>`;
@@ -119,7 +119,8 @@ function logout() {
 
 function showToast(msg, type='info') {
   const t = document.createElement('div');
-  t.style.cssText = `position:fixed;top:80px;right:24px;background:${type==='success'?'#10b981':type==='error'?'#ef4444':'#3b82f6'};color:white;padding:14px 22px;border-radius:12px;font-weight:700;z-index:9999;box-shadow:0 8px 30px rgba(0,0,0,0.2);animation:fadeIn 0.3s`;
+  const bg = type==='success' ? '#10b981' : type==='error' ? '#ef4444' : type==='warning' ? '#f59e0b' : '#3b82f6';
+  t.style.cssText = `position:fixed;top:80px;right:24px;background:${bg};color:white;padding:14px 22px;border-radius:12px;font-weight:700;z-index:9999;box-shadow:0 8px 30px rgba(0,0,0,0.2);animation:fadeIn 0.3s`;
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => { t.style.opacity='0'; t.style.transition='all 0.3s'; }, 2500);

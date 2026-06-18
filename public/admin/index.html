@@ -1577,7 +1577,7 @@ async function removeSession(id) {
   try { await API.deleteSession(id); await loadSessions(); } catch (e) { alert(e.message); }
 }
 // Состояние текущего открытого занятия (для дозагрузки артефактов по строкам)
-let _lesson = { sessionId: null, groupId: null, artifacts: [] };
+let _lesson = { sessionId: null, groupId: null, artifacts: [], missing: [] };
 
 async function openAttendance(sessionId, groupId) {
   const [existing, members, artifacts] = await Promise.all([
@@ -1593,7 +1593,7 @@ async function openAttendance(sessionId, groupId) {
   (members || []).forEach(m => { roster.push({ studentId: m.studentId, name: m.name || userName(m.studentId) }); seen.add(m.studentId); });
   (existing || []).forEach(r => { if (!seen.has(r.studentId)) { roster.push({ studentId: r.studentId, name: r.name || userName(r.studentId) }); seen.add(r.studentId); } });
 
-  _lesson = { sessionId, groupId, artifacts: artifacts || [] };
+  _lesson = { sessionId, groupId, artifacts: artifacts || [], missing: [] };
 
   document.getElementById('modalContent').innerHTML = `
     <h2 data-i18n="session.conduct">Проведение занятия</h2>
@@ -1670,6 +1670,7 @@ async function uploadArtifact(studentId, kind, inputEl) {
     });
     _lesson.artifacts.push(art);
     refreshArtList(studentId);
+    clearMissingForStudent(studentId);
     if (descEl) descEl.value = '';
     err.textContent = '';
     showToast(I18N.t('common.saved'), 'success');
@@ -1696,8 +1697,46 @@ function refreshArtList(studentId) {
 
 async function saveAttendance(sessionId) {
   const records = Array.from(document.querySelectorAll('.att_sel')).map(s => ({ studentId: s.dataset.student, status: s.value }));
-  try { await API.saveAttendance({ lessonSessionId: sessionId, records }); closeModal(); showToast(I18N.t('common.saved'),'success'); }
+  try {
+    const resp = await API.saveAttendance({ lessonSessionId: sessionId, records });
+    const missing = resp && resp.missingReports || [];
+    renderMissingReportWarning(missing);
+    if (missing.length === 0) { closeModal(); }
+    showToast(I18N.t('common.saved'), missing.length ? 'warning' : 'success');
+  }
   catch (e) { document.getElementById('modalErr').textContent = e.message; }
+}
+
+// Подсветить строки учеников, которым не загружен отчёт, и показать предупреждение красным.
+// Модалка при этом не закрывается — чтобы можно было сразу прикрепить нужный файл.
+function renderMissingReportWarning(missing) {
+  _lesson.missing = missing || [];
+  document.querySelectorAll('.lesson-row').forEach(el => el.classList.remove('lesson-row-missing'));
+  let banner = document.getElementById('missingReportBanner');
+  if (!_lesson.missing.length) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'missingReportBanner';
+    const list = document.getElementById('att_list');
+    list.parentNode.insertBefore(banner, list);
+  }
+  banner.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:10px 12px;font-weight:700;font-size:13px;margin-bottom:10px';
+  banner.innerHTML = `⚠️ ${I18N.t('session.missing_report_warning')} ${_lesson.missing.map(m => escapeHtml(m.name)).join(', ')}`;
+  _lesson.missing.forEach(m => {
+    const row = document.querySelector(`.lesson-row[data-row="${m.studentId}"]`);
+    if (row) row.classList.add('lesson-row-missing');
+  });
+}
+
+// Снять предупреждение для конкретного ученика сразу после загрузки ему работы/видео,
+// не дожидаясь повторного нажатия «Сохранить посещаемость».
+function clearMissingForStudent(studentId) {
+  if (!_lesson.missing || !_lesson.missing.length) return;
+  if (!_lesson.missing.some(m => m.studentId === studentId)) return;
+  renderMissingReportWarning(_lesson.missing.filter(m => m.studentId !== studentId));
 }
 
 // ---------- Домашние задания (привязаны к занятиям) ----------
@@ -1782,8 +1821,8 @@ async function renderNotificationsTab() {
       <button class="btn btn-ghost btn-sm" onclick="markAllNotif();setTimeout(()=>render(),200)">${I18N.t('notif.mark_all')}</button>
     </div>
     ${items.length ? `<div class="card" style="padding:0">${items.map(n=>`
-      <a href="${n.link||'#'}" onclick="markNotif('${n.id}')" class="notif-item ${n.read?'':'unread'}" style="border-bottom:1px solid #eef2f7">
-        <div class="notif-text">${escapeHtml(n.text)}</div>
+      <a href="${n.link||'#'}" onclick="markNotif('${n.id}')" class="notif-item ${n.read?'':'unread'} ${n.type==='missing_report'?'urgent':''}" style="border-bottom:1px solid #eef2f7">
+        <div class="notif-text">${n.type==='missing_report'?'⚠️ ':''}${escapeHtml(n.text)}</div>
         <div class="notif-time">${fmtDateTime(n.createdAt)}</div>
       </a>`).join('')}</div>` : `<div class="card" style="padding:24px;text-align:center;color:#64748b">${I18N.t('notif.empty')}</div>`}`;
   I18N.applyI18n(tabEl());

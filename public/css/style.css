@@ -700,6 +700,9 @@ h1 { font-weight:800; } h2 { font-weight:700; }
 .notif-item.unread { background:#eef2ff; }
 .notif-item .notif-text { font-size:14px; font-weight:600; }
 .notif-item .notif-time { font-size:11px; color:var(--text-muted); margin-top:4px; }
+.notif-item.urgent .notif-text { color:#dc2626; }
+.notif-item.urgent.unread { background:#fef2f2; }
+.lesson-row-missing { background:#fef2f2; border-radius:8px; padding-left:8px; margin-left:-8px; box-shadow:inset 3px 0 0 #ef4444; }
 .btn-sm { padding:6px 12px !important; font-size:13px !important; }
 
 /* === Сгруппированный сайдбар админки === */

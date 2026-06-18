@@ -77,6 +77,7 @@
       'session.add_work': 'Работа', 'session.add_video': 'Видео',
       'session.work_desc': 'Описание работы (необязательно)',
       'session.uploading': 'Загрузка…',
+      'session.missing_report_warning': 'Посещаемость сохранена, но отчёт (работа или видео) не загружен для:',
 
       'mat.title': 'Материалы курса', 'mat.course': 'Курс', 'mat.link': 'Ссылка',
       'mat.type': 'Тип', 'mat.expires': 'Доступ до',
@@ -209,6 +210,7 @@
       'session.add_work': 'Жұмыс', 'session.add_video': 'Бейне',
       'session.work_desc': 'Жұмыс сипаттамасы (міндетті емес)',
       'session.uploading': 'Жүктелуде…',
+      'session.missing_report_warning': 'Қатысу сақталды, бірақ есеп (жұмыс немесе бейне) жүктелмеген:',
 
       'mat.title': 'Курс материалдары', 'mat.course': 'Курс', 'mat.link': 'Сілтеме',
       'mat.type': 'Түрі', 'mat.expires': 'Қолжетімділік мерзімі',
