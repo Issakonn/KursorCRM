@@ -1666,7 +1666,7 @@ async function uploadArtifact(studentId, kind, inputEl) {
     });
     const art = await API.createArtifact({
       lessonSessionId: _lesson.sessionId, studentId, type,
-      title: desc || file.name, dataUrl,
+      title: desc || null, dataUrl,
     });
     _lesson.artifacts.push(art);
     refreshArtList(studentId);

@@ -75,7 +75,7 @@
       'session.excused': 'Уважительная причина',
       'session.save_attendance': 'Сохранить посещаемость',
       'session.add_work': 'Работа', 'session.add_video': 'Видео',
-      'session.work_desc': 'Описание работы (необязательно)',
+      'session.work_desc': 'Опишите работу — это увидит родитель',
       'session.uploading': 'Загрузка…',
       'session.missing_report_warning': 'Посещаемость сохранена, но отчёт (работа или видео) не загружен для:',
 
@@ -208,7 +208,7 @@
       'session.excused': 'Дәлелді себеп',
       'session.save_attendance': 'Қатысуды сақтау',
       'session.add_work': 'Жұмыс', 'session.add_video': 'Бейне',
-      'session.work_desc': 'Жұмыс сипаттамасы (міндетті емес)',
+      'session.work_desc': 'Жұмысты сипаттаңыз — ата-ана көреді',
       'session.uploading': 'Жүктелуде…',
       'session.missing_report_warning': 'Қатысу сақталды, бірақ есеп (жұмыс немесе бейне) жүктелмеген:',
 

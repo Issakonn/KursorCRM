@@ -115,6 +115,49 @@
 }
 .feed-open-btn:hover { background: #4f46e5; transform: translateY(-1px); text-decoration: none; }
 
+/* ======= Instagram-style посты (Лента / Работы / Видео) ======= */
+.month-divider { display: flex; align-items: center; gap: 12px; margin: 28px 0 16px; }
+.month-divider:first-child { margin-top: 0; }
+.month-divider span { font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.6px; white-space: nowrap; }
+.month-divider::after { content: ''; flex: 1; height: 1px; background: #e2e8f0; }
+
+.ig-post { background: #fff; border-radius: 18px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 18px; }
+.ig-post-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #f1f5f9; }
+.ig-post-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--gradient-1); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.ig-post-title { font-weight: 800; font-size: 14.5px; color: #1e293b; }
+.ig-post-sub { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+.ig-post-date { margin-left: auto; font-size: 12px; color: #94a3b8; font-weight: 700; white-space: nowrap; }
+.ig-post-body { padding: 2px 0 14px; }
+.ig-block { padding: 12px 18px; }
+.ig-block + .ig-block { border-top: 1px dashed #f1f5f9; }
+
+.ig-image-wrap { padding: 0; }
+.ig-image { width: 100%; max-height: 520px; object-fit: contain; background: #f8fafc; display: block; cursor: zoom-in; }
+.ig-video { width: 100%; max-height: 520px; background: #0f172a; display: block; }
+.ig-media-actions { display: flex; gap: 10px; padding: 10px 18px 0; }
+.ig-download-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 10px;
+  background: #eef2ff; color: #4f46e5; font-weight: 700; font-size: 13px; text-decoration: none; border: none; cursor: pointer;
+  transition: all 0.15s;
+}
+.ig-download-btn:hover { background: #e0e7ff; text-decoration: none; }
+.ig-caption { padding: 8px 18px 2px; font-size: 14px; color: #374151; line-height: 1.55; }
+.ig-caption.muted { color: #94a3b8; font-style: italic; }
+.ig-file-card { display: flex; align-items: center; gap: 12px; padding: 14px 18px; }
+.ig-file-icon { width: 46px; height: 46px; border-radius: 12px; background: #eef2ff; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.ig-file-name { font-weight: 700; font-size: 14px; color: #1e293b; }
+.ig-comment { padding: 10px 18px; background: #f8fafc; font-size: 14px; color: #374151; line-height: 1.55; }
+.ig-comment b { color: #1e293b; }
+.ig-comment + .ig-comment { border-top: 1px solid #eef2f7; }
+.ig-unavailable { padding: 14px 18px; color: #94a3b8; font-style: italic; font-size: 13.5px; background: #f8fafc; }
+
+/* Лайтбокс для просмотра фото в полный размер */
+.ig-lightbox {
+  position: fixed; inset: 0; background: rgba(15,23,42,0.92); z-index: 9998;
+  display: flex; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out;
+}
+.ig-lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+
 /* Empty state */
 .empty-state {
   text-align: center; padding: 60px 20px; color: #94a3b8;
@@ -246,6 +289,7 @@
 
 /* Scroll reveal */
 .feed-card { animation: fadeInUp 0.3s ease both; }
+.ig-post { animation: fadeInUp 0.3s ease both; }
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -340,7 +384,7 @@ async function loadAllData() {
   const sid = child.id;
   try {
     const [feed, attendance, feedback, artifacts, progress] = await Promise.all([
-      API.parentFeed(sid).catch(() => fetchFeed(sid)),
+      API.parentFeed(sid),
       API.parentAttendance(sid),
       API.parentFeedback(sid),
       API.parentArtifacts(sid),
@@ -351,16 +395,6 @@ async function loadAllData() {
     cachedData = { feed: [], attendance: { records: [], visitsLeft: null }, feedback: [], artifacts: [], progress: { points: 0, streak: 0, tasks: {} } };
     console.error('loadAllData error', e);
   }
-}
-
-async function fetchFeed(sid) {
-  // Fallback: собираем ленту из feedback + artifacts
-  const [fb, art] = await Promise.all([API.parentFeedback(sid), API.parentArtifacts(sid)]);
-  const items = [];
-  for (const f of fb) items.push({ id:'fb_'+f.id, kind:'feedback', createdAt: f.createdAt, text: f.text, teacherName: f.teacherName, type: f.type });
-  for (const a of art) items.push({ id:'art_'+a.id, kind: a.type==='video'?'video':'work', createdAt: a.createdAt, title: a.title, sessionDate: a.sessionDate, topic: a.topic, type: a.type, url: a.url, deleted: a.deleted, unavailable: a.unavailable, expiresAt: a.expiresAt });
-  items.sort((a,b)=>b.createdAt-a.createdAt);
-  return items;
 }
 
 function renderSection(key) {
@@ -382,66 +416,141 @@ function renderSection(key) {
   }
 }
 
-/* ======= FEED ======= */
+/* ======= МЕДИА ОТЧЁТОВ (общие блоки для Ленты / Работ / Видео) =======
+   Раньше тут была одна ссылка "🔗 Открыть", из-за которой картинки и файлы
+   не показывались по-человечески. Теперь: картинка — прямо в посте + кнопка
+   «Скачать»; файл (pdf/doc/...) — карточка с иконкой + «Скачать»; видео —
+   настоящий проигрыватель + «Скачать»; внешняя ссылка — кнопка «Открыть». */
+function fileIconFor(url) {
+  const ext = (url || '').split('.').pop().toLowerCase();
+  if (ext === 'pdf') return '📕';
+  if (['doc', 'docx'].includes(ext)) return '📄';
+  if (['ppt', 'pptx'].includes(ext)) return '📊';
+  if (['xls', 'xlsx'].includes(ext)) return '📈';
+  if (['zip', 'rar', '7z'].includes(ext)) return '🗄';
+  if (ext === 'txt') return '📃';
+  return '📎';
+}
+function captionHtml(title) {
+  return title
+    ? `<div class="ig-caption">📝 ${escapeHtml(title)}</div>`
+    : `<div class="ig-caption muted">Описание не добавлено</div>`;
+}
+function imageBlockHtml(a) {
+  return `<div class="ig-block ig-image-wrap">
+    <img class="ig-image" src="${escapeHtml(a.url)}" alt="${escapeHtml(a.title || 'Работа ученика')}" loading="lazy" onclick='openLightbox(${JSON.stringify(a.url)})'>
+    <div class="ig-media-actions"><a class="ig-download-btn" href="${escapeHtml(a.url)}" download>⬇ Скачать</a></div>
+    ${captionHtml(a.title)}
+  </div>`;
+}
+function fileBlockHtml(a) {
+  return `<div class="ig-block">
+    <div class="ig-file-card">
+      <div class="ig-file-icon">${fileIconFor(a.url)}</div>
+      <div style="flex:1;min-width:0"><div class="ig-file-name">${escapeHtml(a.title || 'Файл работы')}</div></div>
+      <a class="ig-download-btn" href="${escapeHtml(a.url)}" download>⬇ Скачать</a>
+    </div>
+  </div>`;
+}
+function videoBlockHtml(a) {
+  return `<div class="ig-block" style="padding:0">
+    <video class="ig-video" controls preload="metadata" src="${escapeHtml(a.url)}"></video>
+    <div class="ig-media-actions"><a class="ig-download-btn" href="${escapeHtml(a.url)}" download>⬇ Скачать видео</a></div>
+    ${captionHtml(a.title)}
+  </div>`;
+}
+function linkBlockHtml(a) {
+  return `<div class="ig-block">
+    ${a.title ? `<div class="ig-caption" style="padding:0 0 8px">🔗 ${escapeHtml(a.title)}</div>` : ''}
+    <a class="ig-download-btn" href="${escapeHtml(a.url)}" target="_blank">🔗 Открыть ссылку</a>
+  </div>`;
+}
+function unavailableBlockHtml(text) {
+  return `<div class="ig-unavailable">⚠️ ${escapeHtml(text)}</div>`;
+}
+// Диспетчер: какой блок показать для конкретного артефакта
+function artifactBlockHtml(a) {
+  if (a.deleted || a.unavailable) return unavailableBlockHtml(a.unavailable || 'Недоступно');
+  if (!a.url) return unavailableBlockHtml('Файл недоступен');
+  if (a.type === 'video') return videoBlockHtml(a);
+  if (a.type === 'link') return linkBlockHtml(a);
+  if (a.isImage || a.type === 'screenshot') return imageBlockHtml(a);
+  return fileBlockHtml(a);
+}
+// Просмотр картинки на весь экран по клику (как в Инстаграме)
+function openLightbox(url) {
+  const box = document.createElement('div');
+  box.className = 'ig-lightbox';
+  box.innerHTML = `<img src="${escapeHtml(url)}">`;
+  box.onclick = () => box.remove();
+  document.body.appendChild(box);
+}
+function monthLabel(ts) {
+  const d = toDate(ts);
+  if (!d) return '';
+  const label = d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/* ======= FEED (как лента в Инстаграме: один урок = один пост) ======= */
 function buildFeed() {
   const items = cachedData.feed || [];
   if (!items.length) {
     return `<h1 class="section-heading"><span class="sh-icon">📰</span> Лента</h1>` + emptyState('explain', 'Пока ничего нет', 'Здесь появятся отчёты учителей, работы и видеоотчёты ребёнка');
   }
 
-  const cards = items.map((item, i) => {
-    const delay = `animation-delay:${i*0.04}s`;
-    if (item.kind === 'feedback') {
-      return `<div class="feed-card" style="${delay}">
-        <div class="feed-card-header">
-          <div class="feed-kind-icon kind-feedback">📋</div>
-          <div class="feed-meta">
-            <div class="feed-meta-title">Отчёт о занятии</div>
-            <div class="feed-meta-sub">${escapeHtml(item.teacherName || 'Учитель')}</div>
-          </div>
-          <div class="feed-date-chip">${fmtDate(item.createdAt)}</div>
-        </div>
-        <div class="feed-card-body">${escapeHtml(item.text)}</div>
-      </div>`;
+  let html = '';
+  let lastMonth = null;
+  items.forEach(item => {
+    const ts = item.kind === 'lesson' ? (item.date || item.createdAt) : item.createdAt;
+    const month = monthLabel(ts);
+    if (month && month !== lastMonth) {
+      html += `<div class="month-divider"><span>${escapeHtml(month)}</span></div>`;
+      lastMonth = month;
     }
-    if (item.kind === 'video') {
-      return `<div class="feed-card" style="${delay}">
-        <div class="feed-card-header">
-          <div class="feed-kind-icon kind-video">🎥</div>
-          <div class="feed-meta">
-            <div class="feed-meta-title">${escapeHtml(item.title || 'Видеоотчёт')}</div>
-            <div class="feed-meta-sub">${item.sessionDate ? fmtDate(item.sessionDate) : ''} ${escapeHtml(item.topic || '')}</div>
-          </div>
-          <div class="feed-date-chip">${fmtDate(item.createdAt)}</div>
-        </div>
-        ${item.unavailable
-          ? `<div class="feed-card-body unavailable">⚠️ ${escapeHtml(item.unavailable)}</div>`
-          : item.url
-            ? `<a class="feed-open-btn" href="${escapeHtml(item.url)}" target="_blank">▶ Смотреть видео</a>`
-            : `<div class="feed-card-body unavailable">Ссылка недоступна</div>`}
-      </div>`;
-    }
-    // work / file / screenshot
-    const typeLabel = { screenshot: '📸 Скриншот работы', file: '📎 Файл работы', link: '🔗 Ссылка', video: '🎥 Видео' }[item.type] || '📝 Работа';
-    return `<div class="feed-card" style="${delay}">
-      <div class="feed-card-header">
-        <div class="feed-kind-icon kind-work">📎</div>
-        <div class="feed-meta">
-          <div class="feed-meta-title">${escapeHtml(item.title || typeLabel)}</div>
-          <div class="feed-meta-sub">${item.sessionDate ? fmtDate(item.sessionDate) : ''} ${escapeHtml(item.topic || '')}</div>
-        </div>
-        <div class="feed-date-chip">${fmtDate(item.createdAt)}</div>
-      </div>
-      ${item.unavailable
-        ? `<div class="feed-card-body unavailable">⚠️ ${escapeHtml(item.unavailable)}</div>`
-        : item.url
-          ? `<a class="feed-open-btn" href="${escapeHtml(item.url)}" target="_blank">🔗 Открыть</a>`
-          : ''}
-    </div>`;
-  }).join('');
+    html += item.kind === 'lesson' ? lessonPostHtml(item) : generalFeedbackPostHtml(item);
+  });
 
   return `<h1 class="section-heading"><span class="sh-icon">📰</span> Лента событий</h1>
-    <div class="feed-list">${cards}</div>`;
+    <div class="feed-list">${html}</div>`;
+}
+
+// Один пост = один урок: тема/группа/дата в шапке, дальше все работы, видео,
+// ссылки и комментарий учителя по этому занятию — друг под другом.
+function lessonPostHtml(item) {
+  const works = item.works || [], videos = item.videos || [], links = item.links || [], comments = item.comments || [];
+  const blocks = [
+    ...works.map(artifactBlockHtml),
+    ...videos.map(artifactBlockHtml),
+    ...links.map(artifactBlockHtml),
+    ...comments.map(c => `<div class="ig-comment">💬 <b>${escapeHtml(c.teacherName || 'Учитель')}:</b> ${escapeHtml(c.text)}</div>`),
+  ];
+  return `<div class="ig-post">
+    <div class="ig-post-header">
+      <div class="ig-post-avatar">📚</div>
+      <div style="flex:1;min-width:0">
+        <div class="ig-post-title">${escapeHtml(item.topic || 'Занятие')}</div>
+        <div class="ig-post-sub">${escapeHtml(item.groupName || '')}</div>
+      </div>
+      <div class="ig-post-date">${item.date ? fmtDate(item.date) : ''}</div>
+    </div>
+    <div class="ig-post-body">${blocks.length ? blocks.join('') : unavailableBlockHtml('Пока ничего не загружено')}</div>
+  </div>`;
+}
+
+// Общий отзыв учителя, не привязанный к конкретному занятию (курс/общее)
+function generalFeedbackPostHtml(item) {
+  return `<div class="ig-post">
+    <div class="ig-post-header">
+      <div class="ig-post-avatar" style="background:#a78bfa">📋</div>
+      <div style="flex:1;min-width:0">
+        <div class="ig-post-title">Отчёт о занятии</div>
+        <div class="ig-post-sub">${escapeHtml(item.teacherName || 'Учитель')}</div>
+      </div>
+      <div class="ig-post-date">${fmtDate(item.createdAt)}</div>
+    </div>
+    <div class="ig-post-body"><div class="ig-caption" style="padding-top:12px">${escapeHtml(item.text)}</div></div>
+  </div>`;
 }
 
 /* ======= LESSONS ======= */
@@ -532,36 +641,22 @@ function buildWorks() {
     return `<h1 class="section-heading"><span class="sh-icon">📝</span> Работы</h1>` + emptyState('thinking', 'Работ пока нет', 'Здесь появятся отчёты о работе ребёнка на занятиях');
   }
 
-  const fbCards = feedback.map(f => `
-    <div class="work-card">
-      <div style="display:flex;align-items:flex-start;gap:12px">
-        <div class="work-card-icon">📋</div>
-        <div style="flex:1">
-          <div class="work-card-title">Отчёт о занятии</div>
-          <div class="work-card-meta">${escapeHtml(f.teacherName || 'Учитель')} · ${fmtDate(f.createdAt)}</div>
+  const fbCards = feedback.map(generalFeedbackPostHtml).join('');
+
+  const artCards = workArtifacts.map(a => `
+    <div class="ig-post">
+      <div class="ig-post-header">
+        <div class="ig-post-avatar">📎</div>
+        <div style="flex:1;min-width:0">
+          <div class="ig-post-title">${escapeHtml(a.topic || 'Занятие')}</div>
+          <div class="ig-post-sub">${a.sessionDate ? fmtDate(a.sessionDate) : ''}</div>
         </div>
       </div>
-      <div class="work-card-text">${escapeHtml(f.text)}</div>
+      <div class="ig-post-body">${artifactBlockHtml(a)}</div>
     </div>`).join('');
 
-  const artCards = workArtifacts.map(a => {
-    const icon = { screenshot: '📸', file: '📎', link: '🔗' }[a.type] || '📎';
-    return `<div class="work-card">
-      <div style="display:flex;align-items:flex-start;gap:12px">
-        <div class="work-card-icon">${icon}</div>
-        <div style="flex:1">
-          <div class="work-card-title">${escapeHtml(a.title || 'Работа ребёнка')}</div>
-          <div class="work-card-meta">${a.sessionDate ? fmtDate(a.sessionDate) : ''} ${escapeHtml(a.topic || '')}</div>
-        </div>
-      </div>
-      ${a.unavailable
-        ? `<div style="color:#94a3b8;font-size:13px;font-style:italic">⚠️ ${escapeHtml(a.unavailable)}</div>`
-        : a.url ? `<a class="feed-open-btn" href="${escapeHtml(a.url)}" target="_blank">🔗 Открыть</a>` : ''}
-    </div>`;
-  }).join('');
-
   return `<h1 class="section-heading"><span class="sh-icon">📝</span> Работы ${escapeHtml(child.name)}</h1>
-    <div class="works-grid">${fbCards}${artCards}</div>`;
+    <div class="feed-list">${fbCards}${artCards}</div>`;
 }
 
 /* ======= VIDEOS ======= */
@@ -572,28 +667,20 @@ function buildVideos() {
     return `<h1 class="section-heading"><span class="sh-icon">🎥</span> Видеоотчёты</h1>` + emptyState('happy', 'Видеоотчётов пока нет', 'Учитель ещё не добавил видео с занятий');
   }
 
-  const cards = videos.map(v => {
-    const expired = !!v.unavailable;
-    return `<div class="video-card">
-      <div class="video-thumb ${expired ? 'expired' : ''}">
-        ${expired ? '' : '🎬'}
-        ${expired ? `<div class="video-expired-overlay">⚠️ ${escapeHtml(v.unavailable)}</div>` : ''}
-      </div>
-      <div class="video-card-body">
-        <div class="video-card-title">${escapeHtml(v.title || 'Видеоотчёт с занятия')}</div>
-        <div class="video-card-meta">
-          ${v.sessionDate ? '📅 ' + fmtDate(v.sessionDate) : ''}
-          ${v.topic ? ' · ' + escapeHtml(v.topic) : ''}
+  const cards = videos.map(v => `
+    <div class="ig-post">
+      <div class="ig-post-header">
+        <div class="ig-post-avatar" style="background:#ec4899">🎥</div>
+        <div style="flex:1;min-width:0">
+          <div class="ig-post-title">${escapeHtml(v.topic || 'Видеоотчёт')}</div>
+          <div class="ig-post-sub">${v.sessionDate ? fmtDate(v.sessionDate) : ''}</div>
         </div>
-        ${!expired && v.url
-          ? `<a class="feed-open-btn" href="${escapeHtml(v.url)}" target="_blank">▶ Смотреть</a>`
-          : expired ? '' : '<span style="color:#94a3b8;font-size:13px">Ссылка недоступна</span>'}
       </div>
-    </div>`;
-  }).join('');
+      <div class="ig-post-body">${artifactBlockHtml(v)}</div>
+    </div>`).join('');
 
   return `<h1 class="section-heading"><span class="sh-icon">🎥</span> Видеоотчёты ${escapeHtml(child.name)}</h1>
-    <div class="videos-grid">${cards}</div>`;
+    <div class="feed-list">${cards}</div>`;
 }
 
 /* ======= ACCOUNT ======= */
