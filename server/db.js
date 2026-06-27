@@ -14,6 +14,19 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// HOTFIX: добавляем group_id если нет (старые базы на Railway)
+try {
+  const _uc = db.prepare("PRAGMA table_info(users)").all();
+  if (_uc.length && !_uc.some(c => c.name === 'group_id')) {
+    db.prepare("ALTER TABLE users ADD COLUMN group_id INTEGER DEFAULT 0").run();
+    console.log('[db] HOTFIX: добавлена колонка group_id');
+  }
+  if (_uc.length && !_uc.some(c => c.name === 'avatar_url')) {
+    db.prepare("ALTER TABLE users ADD COLUMN avatar_url TEXT").run();
+    console.log('[db] HOTFIX: добавлена колонка avatar_url');
+  }
+} catch(e) { console.error('[db] HOTFIX error:', e.message); }
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
