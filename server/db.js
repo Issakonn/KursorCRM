@@ -524,7 +524,10 @@ CREATE TABLE IF NOT EXISTS wa_log (
   group_name   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_wa_log_sent ON wa_log(sent_at DESC);
-CREATE INDEX IF NOT EXISTS idx_wa_log_group ON wa_log(group_id);
+/* idx_wa_log_group переехал ниже — после миграции wa_log, которая добавляет group_id.
+   Иначе на старых базах (без колонки group_id) парсер SQLite валидирует этот
+   индекс по существующей схеме wa_log и весь db.exec падает с
+   "no such column: group_id", даже не доходя до миграции. */
 `);
 
 /* Seed default WhatsApp template if none exists */
