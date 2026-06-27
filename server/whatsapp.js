@@ -90,12 +90,15 @@ async function sendWhatsAppReminders({ force = false, daysAhead } = {}) {
       sc.full_name AS student_name,
       sc.parent_phone,
       sc.parent_name,
-      u.name AS user_name
+      u.name AS user_name,
+      b.address AS branch_address,
+      b.name AS branch_name
     FROM group_schedule gs
     JOIN groups g ON g.id = gs.group_id
     JOIN group_members gm ON gm.group_id = gs.group_id AND (gm.until IS NULL OR gm.until > ?)
     JOIN students_crm sc ON sc.user_id = gm.student_id
     JOIN users u ON u.id = gm.student_id
+    LEFT JOIN branches b ON b.id = g.branch_id
     WHERE gs.weekday = ?
       AND sc.parent_phone IS NOT NULL
       AND sc.parent_phone != ''
@@ -137,6 +140,7 @@ async function sendWhatsAppReminders({ force = false, daysAhead } = {}) {
       time:        row.start_time,
       weekday:     formatWeekday(weekday),
       date:        targetDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }),
+      address:     row.branch_address || row.branch_name || '',
     });
 
     // Пауза чтобы не перегружать API
