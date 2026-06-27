@@ -109,13 +109,7 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
 CREATE INDEX IF NOT EXISTS idx_lesson_progress_user ON lesson_progress(user_id);
 `);
 
-// Миграция: добавляем avatar_url в старые базы (в SQLite нет IF NOT EXISTS для колонок)
-try {
-  const cols = db.prepare("PRAGMA table_info(users)").all();
-  if (!cols.some(c => c.name === 'avatar_url')) {
-    db.prepare("ALTER TABLE users ADD COLUMN avatar_url TEXT").run();
-  }
-} catch {}
+// Миграция avatar_url и group_id перенесена в блок миграции users ниже.
 
 // Миграция: расширяем CHECK constraint tasks.type для новых типов (scratch, blockly, htmlcss, java, cpp)
 // SQLite не поддерживает ALTER TABLE для изменения CHECK — пересоздаём таблицу
@@ -199,6 +193,17 @@ try {
     db.exec(`ALTER TABLE users_old RENAME TO users`);
     db.pragma('legacy_alter_table = OFF');
     db.pragma('foreign_keys = ON');
+  }
+
+  // Миграция: добавляем колонки group_id и avatar_url в старые базы (ALTER TABLE безопаснее пересоздания)
+  const existingUserCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!existingUserCols.includes('group_id')) {
+    db.prepare("ALTER TABLE users ADD COLUMN group_id INTEGER DEFAULT 0").run();
+    console.log('[db] Миграция users: добавлена колонка group_id.');
+  }
+  if (!existingUserCols.includes('avatar_url')) {
+    db.prepare("ALTER TABLE users ADD COLUMN avatar_url TEXT").run();
+    console.log('[db] Миграция users: добавлена колонка avatar_url.');
   }
 
   const usersSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
