@@ -256,6 +256,10 @@ try {
       created_at    INTEGER NOT NULL,
       FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL
     )`);
+     // Убедиться что group_id есть в users_old перед копированием
+try { db.exec('ALTER TABLE users_old ADD COLUMN group_id INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE users_old ADD COLUMN avatar_url TEXT'); } catch(e) {}
+     
     db.exec(`INSERT INTO users (${copyCols}) SELECT ${copyCols} FROM users_old`);
     db.exec(`DROP TABLE users_old`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_users_role    ON users(role)`);
