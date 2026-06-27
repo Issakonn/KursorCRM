@@ -60,6 +60,7 @@ app.use('/api/feedback',          require('./routes-feedback'));
 app.use('/api/session-artifacts', require('./routes-artifacts'));
 app.use('/api/parent',            require('./routes-parent'));
 app.use('/api/notifications',     require('./routes-notifications'));
+app.use('/api/whatsapp',          require('./routes-whatsapp'));
 app.use('/api', require('./routes-materials'));       // /api/materials, /api/teacher-course-access
 app.use('/api', require('./routes-crm'));             // /api/branches, /api/tariffs, /api/groups, /api/students-crm
 app.use('/api', require('./routes-permissions'));     // /api/teacher-permissions
@@ -99,6 +100,9 @@ require('./ws').init(server);
 
 // Фоновые задачи: очистка просроченных видео + генерация уведомлений
 try { require('./cleanup').start(); } catch (e) { console.error('[cleanup] не запущен:', e.message); }
+
+// WhatsApp-планировщик
+try { require('./whatsapp').startScheduler(); } catch (e) { console.error('[whatsapp] планировщик не запущен:', e.message); }
 
 server.listen(PORT, () => {
   console.log(`\n🚀 KURSOR работает: http://localhost:${PORT}`);

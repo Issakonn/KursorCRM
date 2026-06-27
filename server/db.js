@@ -475,7 +475,47 @@ CREATE TABLE IF NOT EXISTS notifications (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wa_templates (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wa_log (
+  id           TEXT PRIMARY KEY,
+  phone        TEXT NOT NULL,
+  student_name TEXT,
+  parent_name  TEXT,
+  message      TEXT,
+  status       TEXT NOT NULL,
+  error        TEXT,
+  sent_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wa_log_sent ON wa_log(sent_at DESC);
 `);
+
+/* Seed default WhatsApp template if none exists */
+try {
+  const hasTpl = db.prepare("SELECT 1 FROM wa_templates LIMIT 1").get();
+  if (!hasTpl) {
+    const { genId } = require('./util');
+    db.prepare("INSERT INTO wa_templates (id,name,body,is_default,created_at) VALUES (?,?,?,1,?)")
+      .run(
+        genId('wt'),
+        'Стандартное напоминание',
+        'Здравствуйте, {{parentName}}! 👋\n\nНапоминаем: завтра ({{date}}) у {{studentName}} занятие в группе «{{groupName}}» в {{time}}.\n\nЖдём вас! 🎓\nШкола программирования KURSOR',
+        Date.now(),
+      );
+  }
+} catch (e) { console.error('[db] Ошибка seed wa_templates:', e.message); }
 
 /* Миграция материалов: ранние сборки могли не иметь колонки title (на всякий случай) */
 try {

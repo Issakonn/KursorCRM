@@ -277,6 +277,19 @@
     parentChildren, parentProgress, parentAttendance, parentFeedback, parentArtifacts, parentFeed,
     // фаза 6
     getNotifications, markNotifRead, markAllNotifRead, deleteNotif,
+    // WhatsApp
+    getWaSettings, saveWaSettings, getWaTemplates, createWaTemplate, updateWaTemplate, deleteWaTemplate,
+    waTest, waSendNow, getWaLog,
+    // WhatsApp
+    getWaSettings:   ()       => request('GET',  '/api/whatsapp/settings'),
+    saveWaSettings:  (data)   => request('PUT',  '/api/whatsapp/settings', data),
+    getWaTemplates:  ()       => request('GET',  '/api/whatsapp/templates'),
+    createWaTemplate:(data)   => request('POST', '/api/whatsapp/templates', data),
+    updateWaTemplate:(id,d)   => request('PUT',  `/api/whatsapp/templates/${id}`, d),
+    deleteWaTemplate:(id)     => request('DELETE',`/api/whatsapp/templates/${id}`),
+    waTest:          (data)   => request('POST', '/api/whatsapp/test', data),
+    waSendNow:       (data)   => request('POST', '/api/whatsapp/send-now', data),
+    getWaLog:        ()       => request('GET',  '/api/whatsapp/log'),
     // импорт/экспорт
     exportUrl, exportDownload, importData,
   };
