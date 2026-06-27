@@ -57,6 +57,7 @@
       'admin.notifications': 'Уведомления', 'admin.whatsapp': 'WhatsApp рассылка',
       'admin.grp_overview': 'Обзор', 'admin.grp_education': 'Образование',
       'admin.grp_crm': 'CRM', 'admin.grp_people': 'Люди', 'admin.grp_journal': 'Учебный процесс',
+      'admin.grp_whatsapp': 'WhatsApp',
       'admin.search_nav': 'Поиск раздела…',
 
       'tariff.lessons': 'Занятий', 'tariff.price': 'Цена', 'tariff.price_kzt': 'Цена, ₸',
@@ -190,6 +191,7 @@
       'admin.notifications': 'Хабарламалар', 'admin.whatsapp': 'WhatsApp хабарлама',
       'admin.grp_overview': 'Шолу', 'admin.grp_education': 'Білім беру',
       'admin.grp_crm': 'CRM', 'admin.grp_people': 'Адамдар', 'admin.grp_journal': 'Оқу үдерісі',
+      'admin.grp_whatsapp': 'WhatsApp',
       'admin.search_nav': 'Бөлімді іздеу…',
 
       'tariff.lessons': 'Сабақ саны', 'tariff.price': 'Бағасы', 'tariff.price_kzt': 'Бағасы, ₸',

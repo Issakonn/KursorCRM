@@ -497,9 +497,12 @@ CREATE TABLE IF NOT EXISTS wa_log (
   message      TEXT,
   status       TEXT NOT NULL,
   error        TEXT,
-  sent_at      INTEGER NOT NULL
+  sent_at      INTEGER NOT NULL,
+  group_id     TEXT,
+  group_name   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_wa_log_sent ON wa_log(sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wa_log_group ON wa_log(group_id);
 `);
 
 /* Seed default WhatsApp template if none exists */
@@ -516,6 +519,18 @@ try {
       );
   }
 } catch (e) { console.error('[db] Ошибка seed wa_templates:', e.message); }
+
+/* Миграция wa_log: добавляем group_id/group_name, если база создана до этой версии */
+try {
+  const cols = db.prepare("PRAGMA table_info(wa_log)").all();
+  if (cols.length && !cols.some(c => c.name === 'group_id')) {
+    db.prepare("ALTER TABLE wa_log ADD COLUMN group_id TEXT").run();
+  }
+  if (cols.length && !cols.some(c => c.name === 'group_name')) {
+    db.prepare("ALTER TABLE wa_log ADD COLUMN group_name TEXT").run();
+  }
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_wa_log_group ON wa_log(group_id)").run();
+} catch (e) { console.error('[db] Ошибка миграции wa_log:', e.message); }
 
 /* Миграция материалов: ранние сборки могли не иметь колонки title (на всякий случай) */
 try {

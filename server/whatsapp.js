@@ -44,24 +44,39 @@ async function sendGreenApi(instanceId, apiToken, phone, message) {
   return await resp.json();
 }
 
+/* ---- Проверка статуса подключения инстанса (authorized / notAuthorized / ...) ---- */
+async function getInstanceState() {
+  const cfg = getSettings();
+  if (!cfg.instanceId || !cfg.apiToken) return { state: 'not_configured' };
+  try {
+    const url = `https://api.green-api.com/waInstance${cfg.instanceId}/getStateInstance/${cfg.apiToken}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return { state: 'error', error: `HTTP ${resp.status}` };
+    const data = await resp.json();
+    return { state: data.stateInstance || 'unknown' };
+  } catch (e) {
+    return { state: 'error', error: e.message };
+  }
+}
+
 /* ---- Подстановка переменных в шаблон ---- */
 function renderTemplate(template, vars) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] || '');
 }
 
 /* ---- Запись в лог ---- */
-function logSend({ phone, studentName, parentName, message, status, error }) {
+function logSend({ phone, studentName, parentName, message, status, error, groupId, groupName }) {
   try {
     db.prepare(
-      "INSERT INTO wa_log (id,phone,student_name,parent_name,message,status,error,sent_at) VALUES (?,?,?,?,?,?,?,?)"
-    ).run(genId('wl'), phone, studentName, parentName, message, status, error || null, Date.now());
+      "INSERT INTO wa_log (id,phone,student_name,parent_name,message,status,error,sent_at,group_id,group_name) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).run(genId('wl'), phone, studentName, parentName, message, status, error || null, Date.now(), groupId || null, groupName || null);
   } catch (e) {
     console.error('[whatsapp] Ошибка записи лога:', e.message);
   }
 }
 
 /* ---- Основная функция рассылки ---- */
-async function sendWhatsAppReminders({ force = false, daysAhead } = {}) {
+async function sendWhatsAppReminders({ force = false, daysAhead, groupIds } = {}) {
   const cfg = getSettings();
   if (!cfg.enabled && !force) return { skipped: true, reason: 'disabled' };
   if (!cfg.instanceId || !cfg.apiToken) {
@@ -83,9 +98,17 @@ async function sendWhatsAppReminders({ force = false, daysAhead } = {}) {
 
   // Ищем всех учеников у которых есть занятие в нужный день
   const statusFilter = cfg.sendOnlyActive ? "AND sc.status='active'" : '';
+  // Если передан список групп (например, преподаватель шлёт только по своим группам) — фильтруем
+  let groupFilter = '';
+  const params = [Date.now(), weekday];
+  if (Array.isArray(groupIds) && groupIds.length) {
+    groupFilter = `AND g.id IN (${groupIds.map(() => '?').join(',')})`;
+    params.push(...groupIds);
+  }
   const rows = db.prepare(`
     SELECT
       gs.start_time,
+      g.id AS group_id,
       g.name AS group_name,
       sc.full_name AS student_name,
       sc.parent_phone,
@@ -104,13 +127,14 @@ async function sendWhatsAppReminders({ force = false, daysAhead } = {}) {
       AND sc.parent_phone != ''
       AND g.status = 'active'
       ${statusFilter}
-  `).all(Date.now(), weekday);
+      ${groupFilter}
+  `).all(...params);
 
   const results = { sent: 0, failed: 0, skipped: 0, details: [] };
 
   // Дедупликация: один родитель — одно сообщение в сутки на одного ученика
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const sent = new Set();
+  const sentSet = new Set();
 
   for (const row of rows) {
     const phone = normalizePhone(row.parent_phone);
@@ -121,8 +145,8 @@ async function sendWhatsAppReminders({ force = false, daysAhead } = {}) {
     }
 
     const dedupeKey = `${phone}_${row.student_name}`;
-    if (sent.has(dedupeKey)) continue;
-    sent.add(dedupeKey);
+    if (sentSet.has(dedupeKey)) continue;
+    sentSet.add(dedupeKey);
 
     // Проверяем не отправляли ли уже сегодня
     const recentLog = db.prepare(
@@ -150,11 +174,11 @@ async function sendWhatsAppReminders({ force = false, daysAhead } = {}) {
 
     try {
       await sendGreenApi(cfg.instanceId, cfg.apiToken, phone, message);
-      logSend({ phone, studentName: row.student_name, parentName: row.parent_name, message, status: 'ok' });
+      logSend({ phone, studentName: row.student_name, parentName: row.parent_name, message, status: 'ok', groupId: row.group_id, groupName: row.group_name });
       results.sent++;
       results.details.push({ studentName: row.student_name, phone, status: 'ok' });
     } catch (e) {
-      logSend({ phone, studentName: row.student_name, parentName: row.parent_name, message, status: 'error', error: e.message });
+      logSend({ phone, studentName: row.student_name, parentName: row.parent_name, message, status: 'error', error: e.message, groupId: row.group_id, groupName: row.group_name });
       results.failed++;
       results.details.push({ studentName: row.student_name, phone, status: 'error', error: e.message });
       console.error(`[whatsapp] Ошибка отправки ${phone}:`, e.message);
@@ -197,4 +221,4 @@ function startScheduler() {
   console.log('[whatsapp] Планировщик запущен (проверка каждую минуту).');
 }
 
-module.exports = { sendWhatsAppReminders, sendTestMessage, normalizePhone, startScheduler };
+module.exports = { sendWhatsAppReminders, sendTestMessage, normalizePhone, startScheduler, getInstanceState };

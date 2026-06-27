@@ -80,7 +80,9 @@ const NAV_GROUPS = [
     { tab:'branches', i18n:'admin.branches', iconKey:'branches', adminOnly:true },
     { tab:'tariffs', i18n:'admin.tariffs', iconKey:'tariffs', adminOnly:true },
     { tab:'clients', i18n:'admin.clients', iconKey:'clients', adminOnly:true },
-    { tab:'whatsapp', i18n:'admin.whatsapp', iconKey:'whatsapp', adminOnly:true },
+  ]},
+  { id:'whatsapp_grp', titleKey:'admin.grp_whatsapp', show:() => isAdmin || (userPerms && userPerms.manage_whatsapp), items:[
+    { tab:'whatsapp', i18n:'admin.whatsapp', iconKey:'whatsapp' },
   ]},
   { id:'journal', titleKey:'admin.grp_journal', items:[
     { tab:'calendar', i18n:'admin.calendar', iconKey:'calendar' },
@@ -99,6 +101,7 @@ function buildNav() {
   const collapsed = JSON.parse(localStorage.getItem('kursor_nav_collapsed') || '{}');
   tree.innerHTML = NAV_GROUPS.map(g => {
     if (g.adminOnly && !isAdmin) return '';
+    if (typeof g.show === 'function' && !g.show()) return '';
     const items = g.items.filter(it => !(it.adminOnly && !isAdmin));
     if (!items.length) return '';
     const isCol = collapsed[g.id] ? 'collapsed' : '';
@@ -1333,6 +1336,7 @@ async function loadPerms() {
     edit_materials:'Редактировать материалы', manage_tasks:'Управлять задачами',
     see_subscriptions:'Видеть абонементы/оплаты', conduct_lessons:'Проводить занятия',
     upload_artifacts:'Загружать материалы занятий', write_feedback:'Писать обратную связь',
+    manage_whatsapp:'Отправлять WhatsApp-напоминания (по своим группам)',
   };
   // Нормализуем _permKeys: массив объектов {key,label} или строк
   // Если _permKeys ещё не загружены (async renderPermissions не завершился),
@@ -1823,75 +1827,144 @@ const WA_VARS = `<small style="color:#64748b;display:block;margin-top:4px">
   <code>{{groupName}}</code> <code>{{time}}</code> <code>{{date}}</code> <code>{{weekday}}</code> <code>{{address}}</code>
 </small>`;
 
+const WA_STATE_INFO = {
+  authorized:      { color:'#22c55e', dot:'🟢', label:'Подключено',        hint:'WhatsApp привязан, можно отправлять сообщения.' },
+  notAuthorized:   { color:'#f59e0b', dot:'🟡', label:'Не авторизован',    hint:'Откройте Green API → отсканируйте QR-код или подключите по номеру телефона.' },
+  blocked:         { color:'#ef4444', dot:'🔴', label:'Заблокирован',      hint:'Инстанс заблокирован Green API. Проверьте личный кабинет green-api.com.' },
+  sleepMode:       { color:'#f59e0b', dot:'🟡', label:'Спящий режим',      hint:'Откройте инстанс в Green API, чтобы разбудить его.' },
+  starting:        { color:'#64748b', dot:'⏳', label:'Запускается…',      hint:'Инстанс ещё инициализируется, обычно занимает 1–5 минут.' },
+  not_configured:  { color:'#64748b', dot:'⚪', label:'Не настроено',      hint:'Введите Instance ID и Token в настройках ниже.' },
+  error:           { color:'#ef4444', dot:'🔴', label:'Ошибка проверки',   hint:'Не удалось получить статус. Проверьте Instance ID/Token.' },
+};
+function waStateInfo(state) {
+  return WA_STATE_INFO[state] || { color:'#64748b', dot:'⚪', label: state || 'Неизвестно', hint:'' };
+}
+
+let _waMeta = null; // { isAdmin, canManageSettings, canManageTemplates, canSendTest, groups }
+
 async function renderWhatsapp() {
-  const [cfg, templates, log] = await Promise.all([
-    API.getWaSettings(), API.getWaTemplates(), API.getWaLog(),
-  ]);
+  const meta = await API.getWaMeta();
+  _waMeta = meta;
+  const promises = [API.getWaTemplates(), API.getWaLog(), API.getWaState()];
+  if (meta.canManageSettings) promises.push(API.getWaSettings());
+  const [templates, log, state, cfg] = await Promise.all(promises);
   window._waTemplates = templates;
 
+  const stateInfo = waStateInfo(state.state);
+  const groups = meta.groups || [];
+
   tabEl().innerHTML = `
-  <h1>📱 WhatsApp рассылка</h1>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:4px">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <h1 style="margin:0">📱 WhatsApp напоминания</h1>
+    ${!meta.isAdmin ? `<span class="badge" style="background:var(--surface-1);color:#64748b">Доступны только ваши группы</span>` : ''}
+  </div>
 
-    <!-- Настройки -->
-    <div class="card" style="padding:20px">
-      <h2 style="margin:0 0 16px;font-size:16px;font-weight:700">⚙️ Настройки Green API</h2>
-      <div class="form-group">
-        <label>Instance ID</label>
-        <input class="form-input" id="wa_iid" placeholder="1234567890" value="${escapeHtml(cfg.instanceId||'')}">
-      </div>
-      <div class="form-group">
-        <label>API Token</label>
-        <input class="form-input" id="wa_tok" type="password" placeholder="••••••••••••" value="${escapeHtml(cfg.apiToken||'')}">
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  <!-- Статус подключения -->
+  <div class="card" id="wa_state_card" style="padding:16px 20px;margin-top:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-left:4px solid ${stateInfo.color}">
+    <div id="wa_state_dot" style="font-size:24px">${stateInfo.dot}</div>
+    <div style="flex:1;min-width:200px">
+      <b id="wa_state_label" style="color:${stateInfo.color}">${stateInfo.label}</b>
+      <div id="wa_state_hint" style="color:#64748b;font-size:13px;margin-top:2px">${stateInfo.hint || ''}</div>
+    </div>
+    <button class="btn btn-outline btn-sm" onclick="refreshWaState()">↻ Обновить статус</button>
+    ${meta.canManageSettings ? `<a class="btn btn-ghost btn-sm" href="https://my.green-api.com" target="_blank" rel="noopener">Открыть Green API ↗</a>` : ''}
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px" id="wa_grid">
+
+    <!-- Левая колонка -->
+    <div style="display:flex;flex-direction:column;gap:20px">
+
+      <!-- Отправить напоминания вручную -->
+      <div class="card" style="padding:20px">
+        <h2 style="margin:0 0 4px;font-size:16px;font-weight:700">🚀 Отправить напоминания</h2>
+        <p style="color:#64748b;font-size:13px;margin:0 0 14px">Сообщение уйдёт родителям выбранных групп прямо сейчас (повторная отправка за сутки блокируется автоматически).</p>
+
         <div class="form-group">
-          <label>Время отправки (час)</label>
-          <input class="form-input" id="wa_hr" type="number" min="0" max="23" value="${cfg.sendHour??18}">
+          <label>За какой день напомнить</label>
+          <select class="form-input" id="wa_force_days">
+            ${[0,1,2,3].map(d=>`<option value="${d}" ${d===1?'selected':''}>${d===0?'Сегодняшнее занятие':d===1?'Завтрашнее занятие':'Занятие через '+d+' дня'}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <label style="margin-bottom:0">Группы</label>
+            ${groups.length>1 ? `<a href="#" onclick="waToggleAllGroups();return false" style="font-size:12px">выбрать/снять все</a>` : ''}
+          </div>
+          ${groups.length ? `
+            <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border-color,#e2e8f0);border-radius:8px;padding:8px;margin-top:6px">
+              ${groups.map(g=>`
+                <label style="display:flex;align-items:center;gap:8px;padding:5px 4px">
+                  <input type="checkbox" class="wa_group_check" value="${g.id}" checked>
+                  <span>${escapeHtml(g.name)}</span>
+                </label>`).join('')}
+            </div>
+          ` : `<p style="color:#64748b;font-size:13px;margin-top:6px">${meta.isAdmin ? 'Нет активных групп.' : 'За вами не закреплено ни одной активной группы — обратитесь к администратору.'}</p>`}
+        </div>
+
+        <button class="btn btn-success" style="width:100%" ${!groups.length?'disabled':''} onclick="waSendNow()">Отправить сейчас</button>
+        <div id="wa_manual_msg" style="margin-top:8px;min-height:18px;font-size:13px"></div>
+      </div>
+
+      ${meta.canManageSettings ? `
+      <!-- Настройки Green API + автоматика (только admin) -->
+      <div class="card" style="padding:20px">
+        <h2 style="margin:0 0 16px;font-size:16px;font-weight:700">⚙️ Подключение и автоматика</h2>
+        <div class="form-group">
+          <label>Instance ID</label>
+          <input class="form-input" id="wa_iid" placeholder="1234567890" value="${escapeHtml(cfg.instanceId||'')}">
         </div>
         <div class="form-group">
-          <label>Минута</label>
-          <input class="form-input" id="wa_min" type="number" min="0" max="59" value="${cfg.sendMinute??0}">
+          <label>API Token</label>
+          <input class="form-input" id="wa_tok" type="password" placeholder="••••••••••••" value="${escapeHtml(cfg.apiToken||'')}">
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label>Время автозапуска</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input class="form-input" id="wa_hr" type="number" min="0" max="23" value="${cfg.sendHour??18}" style="width:64px">
+              <span>:</span>
+              <input class="form-input" id="wa_min" type="number" min="0" max="59" value="${cfg.sendMinute??0}" style="width:64px">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>За сколько дней</label>
+            <select class="form-input" id="wa_days">
+              ${[0,1,2,3].map(d=>`<option value="${d}" ${(cfg.daysAhead??1)===d?'selected':''}>${d===0?'В день занятия':d===1?'За 1 день':d+' дня'}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin:6px 0 14px">
+          <input type="checkbox" id="wa_active" ${cfg.sendOnlyActive!==false?'checked':''}> Только активные ученики
+        </label>
+        <label class="card" style="display:flex;align-items:center;gap:10px;padding:12px;margin-bottom:14px;background:var(--surface-1)">
+          <input type="checkbox" id="wa_enabled" ${cfg.enabled?'checked':''} style="width:18px;height:18px">
+          <span>
+            <b>Автоматическая ежедневная рассылка</b>
+            <div style="color:#64748b;font-size:12px">Сервер сам проверит время и отправит напоминания всем активным группам</div>
+          </span>
+        </label>
+        <button class="btn btn-success" onclick="saveWaSettings()" style="width:100%">Сохранить настройки</button>
+        <div id="wa_cfg_msg" style="margin-top:8px;min-height:18px;font-size:13px"></div>
       </div>
-      <div class="form-group">
-        <label>За сколько дней до занятия</label>
-        <select class="form-input" id="wa_days">
-          ${[0,1,2,3].map(d=>`<option value="${d}" ${(cfg.daysAhead??1)===d?'selected':''}>${d===0?'В день занятия':d===1?'За 1 день':d+' дня'}</option>`).join('')}
-        </select>
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <input type="checkbox" id="wa_active" ${cfg.sendOnlyActive!==false?'checked':''}> Только активные ученики
-      </label>
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:18px;font-size:15px;font-weight:600">
-        <input type="checkbox" id="wa_enabled" ${cfg.enabled?'checked':''}> 🟢 Рассылка включена
-      </label>
-      <button class="btn btn-success" onclick="saveWaSettings()" style="width:100%">Сохранить настройки</button>
-      <div id="wa_cfg_msg" style="margin-top:8px;min-height:18px;font-size:13px"></div>
 
-      <hr style="margin:18px 0;border:none;border-top:1px solid #eef2f7">
-      <h3 style="margin:0 0 10px;font-size:14px;font-weight:700">🧪 Тест-отправка</h3>
-      <div class="form-group">
-        <label>Номер телефона</label>
-        <input class="form-input" id="wa_test_phone" placeholder="+7 777 123 45 67">
+      <!-- Тест-отправка (только admin) -->
+      <div class="card" style="padding:20px">
+        <h2 style="margin:0 0 4px;font-size:16px;font-weight:700">🧪 Тестовое сообщение</h2>
+        <p style="color:#64748b;font-size:13px;margin:0 0 14px">Проверить, что подключение реально работает — отправит на любой номер, минуя группы и расписание.</p>
+        <div class="form-group">
+          <label>Номер телефона</label>
+          <input class="form-input" id="wa_test_phone" placeholder="+7 777 123 45 67">
+        </div>
+        <div class="form-group">
+          <label>Сообщение</label>
+          <textarea class="form-input" id="wa_test_msg" rows="2">Тест WhatsApp-рассылки из KURSOR 🎓</textarea>
+        </div>
+        <button class="btn btn-outline" onclick="waSendTest()" style="width:100%">Отправить тест</button>
+        <div id="wa_test_msg_result" style="margin-top:8px;min-height:18px;font-size:13px"></div>
       </div>
-      <div class="form-group">
-        <label>Сообщение</label>
-        <textarea class="form-input" id="wa_test_msg" rows="2">Тест WhatsApp-рассылки из KURSOR 🎓</textarea>
-      </div>
-      <button class="btn" onclick="waSendTest()" style="width:100%">Отправить тест</button>
-      <div id="wa_test_msg_result" style="margin-top:8px;min-height:18px;font-size:13px"></div>
-
-      <hr style="margin:18px 0;border:none;border-top:1px solid #eef2f7">
-      <h3 style="margin:0 0 10px;font-size:14px;font-weight:700">🚀 Ручной запуск</h3>
-      <p style="color:#64748b;font-size:13px;margin:0 0 10px">Отправить напоминания прямо сейчас (дедупликация за сутки обходится)</p>
-      <div style="display:flex;gap:10px;align-items:center">
-        <select class="form-input" id="wa_force_days" style="flex:1">
-          ${[0,1,2,3].map(d=>`<option value="${d}" ${d===1?'selected':''}>${d===0?'Сегодня':d===1?'Завтра':'+'+d+' дня'}</option>`).join('')}
-        </select>
-        <button class="btn btn-outline" onclick="waSendNow()" style="white-space:nowrap">Запустить</button>
-      </div>
-      <div id="wa_manual_msg" style="margin-top:8px;min-height:18px;font-size:13px"></div>
+      ` : ''}
     </div>
 
     <!-- Правая колонка: шаблоны + лог -->
@@ -1901,7 +1974,7 @@ async function renderWhatsapp() {
       <div class="card" style="padding:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
           <h2 style="margin:0;font-size:16px;font-weight:700">📝 Шаблоны сообщений</h2>
-          <button class="btn btn-sm" onclick="openWaTplForm()">+ Добавить</button>
+          ${meta.canManageTemplates ? `<button class="btn btn-sm" onclick="openWaTplForm()">+ Добавить</button>` : ''}
         </div>
         <div id="wa_tpl_list">
           ${templates.length ? templates.map(t=>`
@@ -1909,30 +1982,36 @@ async function renderWhatsapp() {
               <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
                 <div style="flex:1">
                   <b>${escapeHtml(t.name)}</b>${t.isDefault?' <span class="badge badge-success" style="font-size:11px">По умолч.</span>':''}
-                  <div style="color:#64748b;font-size:12px;margin-top:4px;white-space:pre-wrap">${escapeHtml(t.body.length>120?t.body.slice(0,120)+'…':t.body)}</div>
+                  <div style="color:#64748b;font-size:12px;margin-top:4px;white-space:pre-wrap">${escapeHtml(t.body.length>140?t.body.slice(0,140)+'…':t.body)}</div>
                 </div>
+                ${meta.canManageTemplates ? `
                 <div style="display:flex;gap:6px;flex-shrink:0">
                   <button class="btn btn-ghost btn-sm" onclick="openWaTplForm('${t.id}')">✏️</button>
                   ${!t.isDefault?`<button class="btn btn-ghost btn-sm" onclick="setDefaultTpl('${t.id}')">⭐</button>`:''}
                   <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="deleteWaTpl('${t.id}')">🗑</button>
-                </div>
+                </div>` : ''}
               </div>
             </div>
-          `).join('') : '<p style="color:#64748b;font-size:13px">Нет шаблонов. Создайте первый шаблон.</p>'}
+          `).join('') : '<p style="color:#64748b;font-size:13px">Нет шаблонов.</p>'}
         </div>
+        ${!meta.canManageTemplates ? `<p style="color:#64748b;font-size:12px;margin-top:8px">Шаблоны настраивает администратор.</p>` : ''}
       </div>
 
       <!-- Лог -->
       <div class="card" style="padding:20px;flex:1">
-        <h2 style="margin:0 0 12px;font-size:16px;font-weight:700">📋 Лог отправок</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="margin:0;font-size:16px;font-weight:700">📋 Лог отправок</h2>
+          ${!meta.isAdmin ? `<span style="color:#64748b;font-size:12px">только ваши группы</span>` : ''}
+        </div>
         ${log.length ? `
-        <div style="max-height:320px;overflow-y:auto">
+        <div style="max-height:380px;overflow-y:auto">
           <table class="table" style="font-size:12px">
-            <thead><tr><th>Время</th><th>Ученик</th><th>Телефон</th><th>Статус</th></tr></thead>
+            <thead><tr><th>Время</th><th>Ученик</th><th>Группа</th><th>Телефон</th><th>Статус</th></tr></thead>
             <tbody>
               ${log.map(l=>`<tr>
                 <td style="white-space:nowrap">${fmtDateTime(l.sentAt)}</td>
                 <td>${escapeHtml(l.studentName||'?')}</td>
+                <td>${escapeHtml(l.groupName||'—')}</td>
                 <td>${escapeHtml(l.phone||'')}</td>
                 <td>${l.status==='ok'
                   ?'<span class="badge badge-success">✓ OK</span>'
@@ -1944,7 +2023,35 @@ async function renderWhatsapp() {
       </div>
 
     </div>
-  </div>`;
+  </div>
+  <style>
+    @media (max-width: 900px) { #wa_grid { grid-template-columns: 1fr !important; } }
+  </style>`;
+}
+
+function waToggleAllGroups() {
+  const boxes = document.querySelectorAll('.wa_group_check');
+  const allChecked = Array.from(boxes).every(b => b.checked);
+  boxes.forEach(b => b.checked = !allChecked);
+}
+
+async function refreshWaState() {
+  const card = document.getElementById('wa_state_card');
+  if (card) card.style.opacity = '0.6';
+  try {
+    const state = await API.getWaState();
+    const info = waStateInfo(state.state);
+    card.style.borderLeftColor = info.color;
+    document.getElementById('wa_state_dot').textContent = info.dot;
+    const label = document.getElementById('wa_state_label');
+    label.textContent = info.label;
+    label.style.color = info.color;
+    document.getElementById('wa_state_hint').textContent = info.hint || '';
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    if (card) card.style.opacity = '1';
+  }
 }
 
 async function saveWaSettings() {
@@ -1962,6 +2069,7 @@ async function saveWaSettings() {
     await API.saveWaSettings(data);
     msg.style.color = '#22c55e';
     msg.textContent = '✓ Настройки сохранены';
+    setTimeout(() => { refreshWaState(); }, 800);
     setTimeout(() => msg.textContent = '', 3000);
   } catch(e) {
     msg.style.color = '#ef4444';
@@ -1987,14 +2095,21 @@ async function waSendTest() {
 
 async function waSendNow() {
   const days = parseInt(document.getElementById('wa_force_days').value);
+  const groupIds = Array.from(document.querySelectorAll('.wa_group_check:checked')).map(c => c.value);
   const msg = document.getElementById('wa_manual_msg');
-  msg.style.color = '#64748b'; msg.textContent = 'Запускается…';
+  if (!groupIds.length) { msg.style.color='#ef4444'; msg.textContent='Выберите хотя бы одну группу'; return; }
+  msg.style.color = '#64748b'; msg.textContent = 'Отправляется…';
   try {
-    const r = await API.waSendNow({ daysAhead: days });
-    msg.style.color = '#22c55e';
-    msg.textContent = r.skipped
-      ? 'Рассылка отключена. Включите в настройках или используйте force.'
-      : `✓ Отправлено: ${r.sent}, ошибок: ${r.failed}, пропущено: ${r.skipped}`;
+    const r = await API.waSendNow({ daysAhead: days, groupIds });
+    if (r.skipped) {
+      msg.style.color = '#f59e0b';
+      msg.textContent = r.reason === 'no_groups'
+        ? 'За вами не закреплено активных групп.'
+        : 'Рассылка отключена администратором.';
+    } else {
+      msg.style.color = '#22c55e';
+      msg.textContent = `✓ Отправлено: ${r.sent}, ошибок: ${r.failed}, пропущено: ${r.skipped}`;
+    }
     setTimeout(() => render(), 1500); // обновим лог
   } catch(e) {
     msg.style.color = '#ef4444';

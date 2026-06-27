@@ -278,6 +278,8 @@
     // фаза 6
     getNotifications, markNotifRead, markAllNotifRead, deleteNotif,
     // WhatsApp
+    getWaMeta:       ()       => request('GET',  '/api/whatsapp/meta'),
+    getWaState:      ()       => request('GET',  '/api/whatsapp/state'),
     getWaSettings:   ()       => request('GET',  '/api/whatsapp/settings'),
     saveWaSettings:  (data)   => request('PUT',  '/api/whatsapp/settings', data),
     getWaTemplates:  ()       => request('GET',  '/api/whatsapp/templates'),

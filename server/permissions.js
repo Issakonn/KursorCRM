@@ -13,6 +13,7 @@ const PERMISSION_KEYS = {
   conduct_lessons:    { default: true,  label: 'Может проводить занятия и отмечать посещаемость' },
   upload_artifacts:   { default: true,  label: 'Может загружать видеоотчёты и файлы работ' },
   write_feedback:     { default: true,  label: 'Может оставлять отзывы об учениках' },
+  manage_whatsapp:    { default: false, label: 'Может отправлять WhatsApp-напоминания по своим группам' },
 };
 
 function getPermissions(teacherId) {
